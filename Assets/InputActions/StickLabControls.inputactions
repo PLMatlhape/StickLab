@@ -1,0 +1,33 @@
+{
+  "name": "StickLabControls",
+  "maps": [
+    {
+      "name": "Gameplay",
+      "id": "c6a0a1f5-1f44-4f2f-9e8d-2e5c5fd88a11",
+      "actions": [
+        {
+          "name": "RightStick",
+          "type": "Value",
+          "id": "4a7ac8ef-6da3-4ee0-8bcb-12b4e7fa9f1d",
+          "expectedControlType": "Vector2",
+          "processors": "",
+          "interactions": ""
+        }
+      ],
+      "bindings": [
+        {
+          "name": "",
+          "id": "37cb0b20-9bbd-49a4-9ac8-0e8fe8b0e28a",
+          "path": "<Gamepad>/rightStick",
+          "interactions": "",
+          "processors": "",
+          "groups": "",
+          "action": "RightStick",
+          "isComposite": false,
+          "isPartOfComposite": false
+        }
+      ]
+    }
+  ],
+  "controlSchemes": []
+}
