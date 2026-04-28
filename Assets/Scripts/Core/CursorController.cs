@@ -9,6 +9,15 @@ namespace StickLab.Core
         [SerializeField] private Rect playArea = new Rect(-4f, -2.5f, 8f, 5f);
         [SerializeField, Min(0f)] private float sensitivity = 8f;
         [SerializeField] private float fixedZ = 0f;
+        
+    [Header("Smoothing")]
+    [SerializeField] private bool enableCursorSmoothing = true;
+    [SerializeField, Range(0.01f, 0.5f)] private float smoothAlpha = 0.15f;
+    [SerializeField] private bool enableCursorTrailing = true;
+    [SerializeField] private int trailLength = 8;
+        
+    private CursorSmoother smoother;
+    private CursorTrailRenderer trailRenderer;
 
         public Vector2 Position2D { get; private set; }
 
@@ -19,6 +28,27 @@ namespace StickLab.Core
             Vector3 startPosition = ActiveTransform.position;
             Position2D = new Vector2(startPosition.x, startPosition.y);
             fixedZ = startPosition.z;
+            
+            // Initialize cursor smoother
+            if (enableCursorSmoothing)
+            {
+                CursorSmoother.SmoothSettings smoothSettings = new CursorSmoother.SmoothSettings
+                {
+                    smoothAlpha = smoothAlpha,
+                    enableTrailing = enableCursorTrailing,
+                    trailLength = trailLength,
+                    trailFade = 0.8f
+                };
+                smoother = new CursorSmoother(smoothSettings);
+                
+                if (enableCursorTrailing)
+                {
+                    GameObject trailGO = new GameObject("CursorTrail");
+                    trailGO.transform.SetParent(transform);
+                    trailRenderer = trailGO.AddComponent<CursorTrailRenderer>();
+                    trailRenderer.SetSmoother(smoother);
+                }
+            }
         }
 
         private void Start()
@@ -31,6 +61,21 @@ namespace StickLab.Core
             float effectiveSensitivity = sensitivity * Mathf.Max(0f, sensitivityMultiplier);
             Vector2 nextPosition = Position2D + (stickInput * effectiveSensitivity * deltaTime);
             Position2D = ClampToPlayArea(nextPosition);
+            
+            // Apply cursor smoothing if enabled
+            if (enableCursorSmoothing && smoother != null)
+            {
+                smoother.Update(Position2D);
+                Vector2 smoothedPos = smoother.SmoothedPosition;
+                Position2D = smoothedPos;
+                
+                // Update trail renderer if available
+                if (enableCursorTrailing && trailRenderer != null)
+                {
+                    trailRenderer.UpdateTrail();
+                }
+            }
+            
             ApplyToTransform();
         }
 
@@ -55,6 +100,36 @@ namespace StickLab.Core
         public float GetSensitivity()
         {
             return sensitivity;
+        }
+
+        public void SetCursorSmoothing(bool enabled)
+        {
+            enableCursorSmoothing = enabled;
+        }
+
+        public void SetSmoothAlpha(float alpha)
+        {
+            smoothAlpha = Mathf.Clamp01(alpha);
+            if (smoother != null)
+            {
+                smoother.SetSettings(new CursorSmoother.SmoothSettings
+                {
+                    smoothAlpha = smoothAlpha,
+                    enableTrailing = enableCursorTrailing,
+                    trailLength = trailLength,
+                    trailFade = 0.8f
+                });
+            }
+        }
+
+        public bool GetCursorSmoothingEnabled()
+        {
+            return enableCursorSmoothing;
+        }
+
+        public float GetSmoothAlpha()
+        {
+            return smoothAlpha;
         }
 
         private Vector2 ClampToPlayArea(Vector2 position)

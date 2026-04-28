@@ -76,7 +76,21 @@ namespace StickLab.Core
         private const string SensitivityKey = "StickLab.Settings.Sensitivity";
         private const string DifficultyKey = "StickLab.Settings.DifficultyPreset";
 
-        private void Awake()
+    // Smooth animation displays
+    private SmoothNumberDisplay scoreDisplay;
+    private SmoothNumberDisplay accuracyDisplay;
+    private SmoothNumberDisplay smoothnessDisplay;
+    private SmoothNumberDisplay speedDisplay;
+    private SmoothNumberDisplay deviationDisplay;
+    private SmoothFillDisplay scoreGaugeFillDisplay;
+    private SmoothFillDisplay accuracyFillDisplay;
+    private SmoothFillDisplay smoothnessFillDisplay;
+    private SmoothFillDisplay speedFillDisplay;
+    private SmoothFillDisplay deviationFillDisplay;
+    private SmoothPanelTransition overlayTransition;
+    private CanvasGroup overlayCanvasGroup;
+
+    private void Awake()
         {
             if (uiFont == null)
             {
@@ -98,6 +112,50 @@ namespace StickLab.Core
             ApplyDifficultyProfile();
             RefreshBindingLabels();
             EnsureFocusSelection();
+            // Initialize smooth displays for smooth animations
+            scoreDisplay = new SmoothNumberDisplay(scoreText, "0.0");
+            scoreDisplay.SetValueInstant(0f);
+            
+            accuracyDisplay = new SmoothNumberDisplay(accuracyText, "0.0");
+            accuracyDisplay.SetValueInstant(0f);
+            
+            smoothnessDisplay = new SmoothNumberDisplay(smoothnessText, "0.0");
+            smoothnessDisplay.SetValueInstant(0f);
+            
+            speedDisplay = new SmoothNumberDisplay(speedText, "0.0");
+            speedDisplay.SetValueInstant(0f);
+            
+            deviationDisplay = new SmoothNumberDisplay(deviationText, "0.0");
+            deviationDisplay.SetValueInstant(0f);
+            
+            scoreGaugeFillDisplay = new SmoothFillDisplay(scoreGaugeFill);
+            scoreGaugeFillDisplay.SetFillInstant(0f);
+            
+            accuracyFillDisplay = new SmoothFillDisplay(accuracyFill);
+            accuracyFillDisplay.SetFillInstant(0f);
+            
+            smoothnessFillDisplay = new SmoothFillDisplay(smoothnessFill);
+            smoothnessFillDisplay.SetFillInstant(0f);
+            
+            speedFillDisplay = new SmoothFillDisplay(speedFill);
+            speedFillDisplay.SetFillInstant(0f);
+            
+            deviationFillDisplay = new SmoothFillDisplay(deviationFill);
+            deviationFillDisplay.SetFillInstant(0f);
+            
+            scoreGaugeText.text = "0.0";
+            
+            // Setup overlay fade transition
+            if (overlayPanel != null)
+            {
+                overlayCanvasGroup = overlayPanel.GetComponent<CanvasGroup>();
+                if (overlayCanvasGroup == null)
+                {
+                    overlayCanvasGroup = overlayPanel.gameObject.AddComponent<CanvasGroup>();
+                }
+                overlayTransition = new SmoothPanelTransition(overlayCanvasGroup);
+                overlayTransition.SetAlphaInstant(0f);
+            }
         }
 
         private void Update()
@@ -539,10 +597,26 @@ namespace StickLab.Core
                     : $"Stage {sessionManager.CurrentStageIndex + 1}/{sessionManager.StageCount}\nTier {sessionManager.DifficultyTier}\nElapsed {sessionManager.ElapsedSeconds:0.0}s";
             }
 
-            UpdateMetric(accuracyText, accuracyFill, sessionManager.CurrentAccuracy / 100f);
-            UpdateMetric(smoothnessText, smoothnessFill, sessionManager.CurrentSmoothness / 100f);
-            UpdateMetric(speedText, speedFill, sessionManager.CurrentSpeedConsistency / 100f);
-            UpdateMetric(deviationText, deviationFill, 1f - Mathf.Clamp01(sessionManager.CurrentDeviation / 0.5f));
+            // Use smooth animations for metrics
+            scoreDisplay?.SetValue(sessionManager.CurrentTotalScore, 0.15f);
+            scoreGaugeFillDisplay?.SetFill(Mathf.Clamp01(sessionManager.CurrentTotalScore / 100f), 0.2f);
+            if (scoreGaugeText != null && scoreDisplay != null)
+            {
+                scoreGaugeText.text = scoreDisplay.CurrentValue.ToString("0.0");
+            }
+            
+            accuracyDisplay?.SetValue(sessionManager.CurrentAccuracy, 0.15f);
+            accuracyFillDisplay?.SetFill(sessionManager.CurrentAccuracy / 100f, 0.2f);
+            
+            smoothnessDisplay?.SetValue(sessionManager.CurrentSmoothness, 0.15f);
+            smoothnessFillDisplay?.SetFill(sessionManager.CurrentSmoothness / 100f, 0.2f);
+            
+            speedDisplay?.SetValue(sessionManager.CurrentSpeedConsistency, 0.15f);
+            speedFillDisplay?.SetFill(sessionManager.CurrentSpeedConsistency / 100f, 0.2f);
+            
+            float deviationFillValue = 1f - Mathf.Clamp01(sessionManager.CurrentDeviation / 0.5f);
+            deviationDisplay?.SetValue(deviationFillValue * 100f, 0.15f);
+            deviationFillDisplay?.SetFill(deviationFillValue, 0.2f);
 
             if (tipText != null)
             {
@@ -576,7 +650,24 @@ namespace StickLab.Core
             }
 
             bool showOverlay = sessionManager.State == TrainingSessionManager.SessionState.Paused || sessionManager.State == TrainingSessionManager.SessionState.Results;
-            overlayPanel.gameObject.SetActive(showOverlay);
+            
+            // Use smooth fade transition for overlay
+            if (overlayTransition != null)
+            {
+                if (showOverlay)
+                {
+                    overlayTransition.FadeIn(0.25f);
+                }
+                else
+                {
+                    overlayTransition.FadeOut(0.2f);
+                }
+            }
+            else
+            {
+                overlayPanel.gameObject.SetActive(showOverlay);
+            }
+            
             if (showOverlay)
             {
                 SetFocusToFirstOverlayButton();
