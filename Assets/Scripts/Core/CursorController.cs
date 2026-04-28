@@ -26,9 +26,10 @@ namespace StickLab.Core
             SetPosition(Position2D);
         }
 
-        public void Tick(Vector2 stickInput, float deltaTime)
+        public void Tick(Vector2 stickInput, float deltaTime, float sensitivityMultiplier = 1f)
         {
-            Vector2 nextPosition = Position2D + (stickInput * sensitivity * deltaTime);
+            float effectiveSensitivity = sensitivity * Mathf.Max(0f, sensitivityMultiplier);
+            Vector2 nextPosition = Position2D + (stickInput * effectiveSensitivity * deltaTime);
             Position2D = ClampToPlayArea(nextPosition);
             ApplyToTransform();
         }

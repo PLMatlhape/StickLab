@@ -32,9 +32,7 @@ namespace StickLab.Core
             GameObject drillObject = new GameObject("Circle Drill");
             GameObject gameLoopObject = new GameObject("Game Loop");
             GameObject sessionObject = new GameObject("Training Session");
-            GameObject hudObject = new GameObject("Training HUD");
-            GameObject menuObject = new GameObject("Training Menu");
-            GameObject settingsObject = new GameObject("Training Settings");
+            GameObject dashboardObject = new GameObject("Training Dashboard");
 
             cursorObject.transform.SetParent(systemsRoot.transform, false);
             pathObject.transform.SetParent(systemsRoot.transform, false);
@@ -43,9 +41,7 @@ namespace StickLab.Core
             drillObject.transform.SetParent(systemsRoot.transform, false);
             gameLoopObject.transform.SetParent(systemsRoot.transform, false);
             sessionObject.transform.SetParent(systemsRoot.transform, false);
-            hudObject.transform.SetParent(systemsRoot.transform, false);
-            menuObject.transform.SetParent(systemsRoot.transform, false);
-            settingsObject.transform.SetParent(systemsRoot.transform, false);
+            dashboardObject.transform.SetParent(systemsRoot.transform, false);
 
             InputHandler inputHandler = gameLoopObject.AddComponent<InputHandler>();
             CursorController cursorController = cursorObject.AddComponent<CursorController>();
@@ -58,18 +54,14 @@ namespace StickLab.Core
             ShapeDrill shapeDrill = shapeObject.AddComponent<ShapeDrill>();
             GameLoop gameLoop = gameLoopObject.AddComponent<GameLoop>();
             TrainingSessionManager sessionManager = sessionObject.AddComponent<TrainingSessionManager>();
-            TrainingHud hud = hudObject.AddComponent<TrainingHud>();
-            TrainingMenu menu = menuObject.AddComponent<TrainingMenu>();
-            TrainingSettingsPanel settingsPanel = settingsObject.AddComponent<TrainingSettingsPanel>();
+            TrainingDashboardUI dashboard = dashboardObject.AddComponent<TrainingDashboardUI>();
 
             circleDrill.SetPathRenderer(pathRenderer);
             lineDrill.SetPathRenderer(lineObject.GetComponent<PathRenderer>());
             shapeDrill.SetPathRenderer(shapeObject.GetComponent<PathRenderer>());
             sessionManager.SetReferences(circleDrill, lineDrill, shapeDrill, cursorController);
             gameLoop.SetReferences(inputHandler, cursorController, sessionManager);
-            hud.SetSessionManager(sessionManager);
-            menu.SetReferences(sessionManager, inputHandler);
-            settingsPanel.SetReferences(inputHandler, cursorController, sessionManager);
+            dashboard.SetReferences(inputHandler, cursorController, sessionManager);
 
             cursorController.SetPlayArea(new Rect(-playAreaSize.x * 0.5f, -playAreaSize.y * 0.5f, playAreaSize.x, playAreaSize.y));
 

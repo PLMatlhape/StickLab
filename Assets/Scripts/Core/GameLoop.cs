@@ -18,7 +18,7 @@ namespace StickLab.Core
 
         private void Update()
         {
-            if (inputHandler == null || cursorController == null || sessionManager == null || !sessionManager.IsRunning)
+            if (inputHandler == null || cursorController == null || sessionManager == null)
             {
                 return;
             }
@@ -26,9 +26,14 @@ namespace StickLab.Core
             float deltaTime = Time.deltaTime;
 
             inputHandler.Sample();
+            if (!sessionManager.IsRunning)
+            {
+                return;
+            }
+
             Vector2 stickInput = inputHandler.RightStick;
 
-            cursorController.Tick(stickInput, deltaTime);
+            cursorController.Tick(stickInput, deltaTime, inputHandler.PrecisionMultiplier);
             sessionManager.Tick(cursorController.Position2D, deltaTime);
         }
     }

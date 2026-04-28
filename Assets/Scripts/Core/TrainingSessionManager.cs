@@ -54,7 +54,7 @@ namespace StickLab.Core
         public float HoldProgress01 => activeStage.holdSeconds <= Mathf.Epsilon ? 0f : Mathf.Clamp01(successTimer / activeStage.holdSeconds);
         public bool IsRunning { get; private set; }
         public bool HasStarted { get; private set; }
-        public string ControllerHintText => "Controller: Start = begin/restart, Retry/R = stop";
+        public string ControllerHintText => "Controller: Start = begin/restart, Retry/R = stop, LT/ADS = precision mode, RT = fire";
 
         private TrainingStage activeStage;
         private float successTimer;
@@ -100,6 +100,22 @@ namespace StickLab.Core
         {
             StopSession();
             BeginSession();
+        }
+
+        public void SelectStage(int stageIndex)
+        {
+            EnsureStages();
+
+            if (StageCount == 0)
+            {
+                return;
+            }
+
+            CurrentStageIndex = Mathf.Clamp(stageIndex, 0, StageCount - 1);
+            HasStarted = true;
+            IsRunning = true;
+            successTimer = 0f;
+            ActivateStage(CurrentStageIndex);
         }
 
         public void SetDifficultyProfile(float sizeMultiplier, float thicknessMultiplier, float toleranceMultiplier)
@@ -174,6 +190,43 @@ namespace StickLab.Core
                 DrillKind.Line => "Hold the stick on the line with constant speed.",
                 DrillKind.Shape => "Follow the full shape without leaving the path.",
                 _ => string.Empty
+            };
+        }
+
+        public string GetStageName(int stageIndex)
+        {
+            if (stages == null || stageIndex < 0 || stageIndex >= stages.Length)
+            {
+                return string.Empty;
+            }
+
+            return stages[stageIndex].stageName;
+        }
+
+        public DrillKind GetStageKind(int stageIndex)
+        {
+            if (stages == null || stageIndex < 0 || stageIndex >= stages.Length)
+            {
+                return DrillKind.Circle;
+            }
+
+            return stages[stageIndex].drillKind;
+        }
+
+        public string GetStageSummary(int stageIndex)
+        {
+            if (stages == null || stageIndex < 0 || stageIndex >= stages.Length)
+            {
+                return string.Empty;
+            }
+
+            TrainingStage stage = stages[stageIndex];
+            return stage.drillKind switch
+            {
+                DrillKind.Circle => $"Circle • R={stage.radius:0.0}",
+                DrillKind.Line => $"Line • {stage.lineOrientation}",
+                DrillKind.Shape => $"Shape • {stage.shapeType}",
+                _ => stage.stageName
             };
         }
 

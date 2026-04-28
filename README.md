@@ -18,12 +18,14 @@ Controller aim training MVP for Unity.
 
 1. Create or open a Unity LTS project on Windows.
 2. Install the **Input System** package.
-3. Set **Active Input Handling** to **Input System Package** or **Both**.
+3. Set **Active Input Handling** to **Both** so the dashboard buttons and controller can both work.
 4. Import or keep the provided action asset at [Assets/InputActions/StickLabControls.inputactions](Assets/InputActions/StickLabControls.inputactions).
 5. Create an empty scene.
 6. Add one GameObject with `TrainingSceneBootstrap`.
-7. Press Play and use the controller Start button to begin.
-8. Press F1 to toggle the live settings panel.
+7. Press Play.
+8. Use the controller Start button or the on-screen Start button to begin.
+9. Hold LT for precision/ADS mode and use RT as the fire input.
+10. Press F1 to toggle the dashboard.
 
 If you prefer manual wiring, you can instead place:
 
@@ -35,12 +37,46 @@ If you prefer manual wiring, you can instead place:
 - `LineDrill`
 - `ShapeDrill`
 - `TrainingSessionManager`
-- `TrainingHud`
-- `TrainingMenu`
-- `TrainingSettingsPanel`
+- `TrainingDashboardUI`
 - `GameLoop`
 
-For `InputHandler`, you can assign the action asset and use the `Gameplay/RightStick` action, or leave it empty and let the game fall back to the connected controller.
+For `InputHandler`, assign [Assets/InputActions/StickLabControls.inputactions](Assets/InputActions/StickLabControls.inputactions) and use the `Gameplay` map. The dashboard supports rebinding `RightStick`, `Aim`, `Fire`, `Confirm`, and `Cancel`.
+
+## Exact scene wiring
+
+If you want to wire it by hand instead of using the bootstrap:
+
+1. Create a root GameObject named `StickLab Bootstrap`.
+2. Add `TrainingSceneBootstrap` to it.
+3. The bootstrap creates the following runtime objects:
+	- `Main Camera`
+	- `Cursor`
+	- `Circle Path`
+	- `Line Drill`
+	- `Shape Drill`
+	- `Circle Drill`
+	- `Game Loop`
+	- `Training Session`
+	- `Training Dashboard`
+4. If wiring manually, assign:
+	- `InputHandler` to `GameLoop`
+	- `CursorController` to `GameLoop` and `TrainingSessionManager`
+	- `CircleDrill`, `LineDrill`, and `ShapeDrill` to `TrainingSessionManager`
+	- `TrainingDashboardUI` to the same `InputHandler`, `CursorController`, and `TrainingSessionManager`
+5. Attach `PathRenderer` to each drill object.
+6. Attach a `LineRenderer` to the cursor object for `CursorIndicator`.
+7. Point `InputHandler` at the `Gameplay` map in [Assets/InputActions/StickLabControls.inputactions](Assets/InputActions/StickLabControls.inputactions).
+
+## UI layout
+
+The dashboard is a dark, card-based layout inspired by the reference image:
+
+- left sidebar for sections and controller status
+- top bar for connection and profile status
+- center panel for the current drill and action buttons
+- right panel for score and live performance bars
+- bottom strip for quick tips and drill progress
+- quick settings and rebind slots inside the sidebar/right panel
 
 ## Current MVP behavior
 

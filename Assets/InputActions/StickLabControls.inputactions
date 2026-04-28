@@ -12,6 +12,38 @@
           "expectedControlType": "Vector2",
           "processors": "",
           "interactions": ""
+        },
+        {
+          "name": "Aim",
+          "type": "Button",
+          "id": "e4dfdb91-8d60-4c16-b8f4-b7b6d6b7b2e1",
+          "expectedControlType": "Button",
+          "processors": "",
+          "interactions": "Press"
+        },
+        {
+          "name": "Fire",
+          "type": "Button",
+          "id": "b1b6d3f1-6f0d-4cf2-b846-0a7e0d8d7b32",
+          "expectedControlType": "Button",
+          "processors": "",
+          "interactions": "Press"
+        },
+        {
+          "name": "Confirm",
+          "type": "Button",
+          "id": "60e4c56c-b8b4-4c85-bb1f-1f5e6a8e55d5",
+          "expectedControlType": "Button",
+          "processors": "",
+          "interactions": "Press"
+        },
+        {
+          "name": "Cancel",
+          "type": "Button",
+          "id": "d1f4e61d-7a7f-48d4-8f89-53fbd7b3e944",
+          "expectedControlType": "Button",
+          "processors": "",
+          "interactions": "Press"
         }
       ],
       "bindings": [
@@ -23,6 +55,72 @@
           "processors": "",
           "groups": "",
           "action": "RightStick",
+          "isComposite": false,
+          "isPartOfComposite": false
+        },
+        {
+          "name": "",
+          "id": "bc7cc4c1-8c23-48f1-8b3f-1f24f25bcde2",
+          "path": "<Gamepad>/leftTrigger",
+          "interactions": "",
+          "processors": "",
+          "groups": "",
+          "action": "Aim",
+          "isComposite": false,
+          "isPartOfComposite": false
+        },
+        {
+          "name": "",
+          "id": "8fae1a86-4f0d-4e31-83a5-2bf48f4ac3c7",
+          "path": "<Gamepad>/rightTrigger",
+          "interactions": "",
+          "processors": "",
+          "groups": "",
+          "action": "Fire",
+          "isComposite": false,
+          "isPartOfComposite": false
+        },
+        {
+          "name": "",
+          "id": "e0e8c6f2-9a6d-45c4-9c74-0e0c3dbd65f6",
+          "path": "<Gamepad>/start",
+          "interactions": "",
+          "processors": "",
+          "groups": "",
+          "action": "Confirm",
+          "isComposite": false,
+          "isPartOfComposite": false
+        },
+        {
+          "name": "",
+          "id": "dfbc1d0a-4c1b-4d4d-bcb2-4a8f6f5d9d34",
+          "path": "<Gamepad>/select",
+          "interactions": "",
+          "processors": "",
+          "groups": "",
+          "action": "Cancel",
+          "isComposite": false,
+          "isPartOfComposite": false
+        },
+        {
+          "name": "",
+          "id": "f8a1dcda-9f3a-4f6f-bf0b-9d4c0d2d4f12",
+          "path": "<Keyboard>/enter",
+          "interactions": "",
+          "processors": "",
+          "groups": "",
+          "action": "Confirm",
+          "isComposite": false,
+          "isPartOfComposite": false
+        },
+        {
+          "name": "",
+          "id": "ac53d5fb-9db2-4d34-89f7-55b3f61fd6d7",
+          "path": "<Keyboard>/escape",
+          "interactions": "",
+          "processors": "",
+          "groups": "",
+          "action": "Cancel",
           "isComposite": false,
           "isPartOfComposite": false
         }
