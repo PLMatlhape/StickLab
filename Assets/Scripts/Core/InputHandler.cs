@@ -86,6 +86,11 @@ namespace StickLab.Core
             deadzone = Mathf.Clamp(newDeadzone, 0f, 0.5f);
         }
 
+        public float GetDeadzone()
+        {
+            return deadzone;
+        }
+
         public InputActionAsset GetInputActionsAsset()
         {
             return inputActions;

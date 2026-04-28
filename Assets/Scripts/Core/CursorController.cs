@@ -52,6 +52,11 @@ namespace StickLab.Core
             sensitivity = Mathf.Max(0f, newSensitivity);
         }
 
+        public float GetSensitivity()
+        {
+            return sensitivity;
+        }
+
         private Vector2 ClampToPlayArea(Vector2 position)
         {
             float x = Mathf.Clamp(position.x, playArea.xMin, playArea.xMax);

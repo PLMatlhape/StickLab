@@ -6,6 +6,14 @@ namespace StickLab.Core
 {
     public class TrainingSessionManager : MonoBehaviour
     {
+        public enum SessionState
+        {
+            Ready,
+            Running,
+            Paused,
+            Results
+        }
+
         public enum DrillKind
         {
             Circle,
@@ -51,9 +59,15 @@ namespace StickLab.Core
         public float CurrentSpeedConsistency { get; private set; }
         public float CurrentTotalScore { get; private set; }
         public float CurrentDeviation { get; private set; }
+        public float AverageScore { get; private set; }
+        public float PeakScore { get; private set; }
+        public float ElapsedSeconds { get; private set; }
+        public int CompletedStages { get; private set; }
+        public SessionState State { get; private set; } = SessionState.Ready;
+        public bool IsPaused => State == SessionState.Paused;
         public float HoldProgress01 => activeStage.holdSeconds <= Mathf.Epsilon ? 0f : Mathf.Clamp01(successTimer / activeStage.holdSeconds);
-        public bool IsRunning { get; private set; }
-        public bool HasStarted { get; private set; }
+        public bool IsRunning => State == SessionState.Running;
+        public bool HasStarted => State != SessionState.Ready;
         public string ControllerHintText => "Controller: Start = begin/restart, Retry/R = stop, LT/ADS = precision mode, RT = fire";
 
         private TrainingStage activeStage;
@@ -81,24 +95,54 @@ namespace StickLab.Core
         {
             EnsureStages();
             initialized = true;
-            HasStarted = true;
+            State = SessionState.Running;
             DifficultyTier = 0;
             CurrentStageIndex = 0;
             successTimer = 0f;
+            ElapsedSeconds = 0f;
+            CompletedStages = 0;
+            PeakScore = 0f;
+            AverageScore = 0f;
             IsRunning = true;
             ActivateStage(CurrentStageIndex);
         }
 
         public void StopSession()
         {
-            IsRunning = false;
+            State = SessionState.Paused;
             SetAllDrillsInactive();
             ResetLiveMetrics();
         }
 
+        public void PauseSession()
+        {
+            if (State == SessionState.Running)
+            {
+                State = SessionState.Paused;
+                SetAllDrillsInactive();
+            }
+        }
+
+        public void ResumeSession()
+        {
+            if (State == SessionState.Paused)
+            {
+                State = SessionState.Running;
+                ActivateStage(CurrentStageIndex);
+            }
+        }
+
+        public void EndSession()
+        {
+            State = SessionState.Results;
+            SetAllDrillsInactive();
+        }
+
         public void RestartSession()
         {
-            StopSession();
+            State = SessionState.Ready;
+            SetAllDrillsInactive();
+            ResetLiveMetrics();
             BeginSession();
         }
 
@@ -112,8 +156,7 @@ namespace StickLab.Core
             }
 
             CurrentStageIndex = Mathf.Clamp(stageIndex, 0, StageCount - 1);
-            HasStarted = true;
-            IsRunning = true;
+            State = SessionState.Running;
             successTimer = 0f;
             ActivateStage(CurrentStageIndex);
         }
@@ -131,6 +174,8 @@ namespace StickLab.Core
             {
                 return;
             }
+
+            ElapsedSeconds += deltaTime;
 
             switch (CurrentDrillKind)
             {
@@ -168,6 +213,9 @@ namespace StickLab.Core
                     }
                     break;
             }
+
+            AverageScore = Mathf.Lerp(AverageScore, CurrentTotalScore, 0.08f);
+            PeakScore = Mathf.Max(PeakScore, CurrentTotalScore);
 
             UpdateProgress(deltaTime);
         }
@@ -249,12 +297,15 @@ namespace StickLab.Core
         private void AdvanceStage()
         {
             successTimer = 0f;
+            CompletedStages++;
             CurrentStageIndex++;
 
             if (CurrentStageIndex >= StageCount)
             {
                 CurrentStageIndex = 0;
                 DifficultyTier++;
+                EndSession();
+                return;
             }
 
             ActivateStage(CurrentStageIndex);
@@ -365,6 +416,7 @@ namespace StickLab.Core
             CurrentSpeedConsistency = 0f;
             CurrentTotalScore = 0f;
             CurrentDeviation = 0f;
+            AverageScore = 0f;
         }
 
         private float ScaleByDifficulty(float value, float multiplier)
