@@ -1,4 +1,5 @@
 using UnityEngine;
+using StickLab.Analytics;
 
 namespace StickLab.Core
 {
@@ -8,12 +9,20 @@ namespace StickLab.Core
         [SerializeField] private InputHandler inputHandler;
         [SerializeField] private CursorController cursorController;
         [SerializeField] private TrainingSessionManager sessionManager;
+        [SerializeField] private HeatmapRecorder heatmapRecorder;
+
+        private bool recordingActive;
 
         public void SetReferences(InputHandler newInputHandler, CursorController newCursorController, TrainingSessionManager newSessionManager)
         {
             inputHandler = newInputHandler;
             cursorController = newCursorController;
             sessionManager = newSessionManager;
+        }
+
+        public void SetHeatmapRecorder(HeatmapRecorder newHeatmapRecorder)
+        {
+            heatmapRecorder = newHeatmapRecorder;
         }
 
         private void Update()
@@ -25,6 +34,8 @@ namespace StickLab.Core
 
             float deltaTime = Time.deltaTime;
 
+            HandleHeatmapRecordingState();
+
             inputHandler.Sample();
             if (!sessionManager.IsRunning)
             {
@@ -35,6 +46,30 @@ namespace StickLab.Core
 
             cursorController.Tick(stickInput, deltaTime, inputHandler.PrecisionMultiplier);
             sessionManager.Tick(cursorController.Position2D, deltaTime);
+
+            if (heatmapRecorder != null)
+            {
+                heatmapRecorder.CaptureSample(cursorController.Position2D, sessionManager.CurrentTotalScore, deltaTime);
+            }
+        }
+
+        private void HandleHeatmapRecordingState()
+        {
+            if (heatmapRecorder == null || sessionManager == null)
+            {
+                return;
+            }
+
+            if (sessionManager.IsRunning && !recordingActive)
+            {
+                recordingActive = true;
+                heatmapRecorder.BeginRecording();
+            }
+            else if (!sessionManager.IsRunning && recordingActive)
+            {
+                recordingActive = false;
+                heatmapRecorder.EndRecording();
+            }
         }
     }
 }
