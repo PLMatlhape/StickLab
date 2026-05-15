@@ -6,516 +6,289 @@ namespace StickLab.Core
 {
     public class TrainingSessionManager : MonoBehaviour
     {
-        public enum SessionState
-        {
-            Ready,
-            Running,
-            Paused,
-            Results
-        }
-
-        public enum DrillKind
-        {
-            Circle,
-            Line,
-            Shape
-        }
+        public enum SessionState { Ready, Running, Paused, Results }
+        public enum DrillKind    { Circle, Line, Shape, InfinityLoop, Spiral }
 
         [Serializable]
         public struct TrainingStage
         {
-            public string stageName;
+            public string   stageName;
             public DrillKind drillKind;
             public LineDrill.LineOrientation lineOrientation;
-            public ShapeDrill.ShapeType shapeType;
-            public Vector2 center;
-            public float radius;
-            public float lineLength;
-            public float thickness;
-            public float tolerance;
-            public float passScore;
-            public float holdSeconds;
+            public ShapeDrill.ShapeType      shapeType;
+            public Vector2  center;
+            public float    radius;
+            public float    lineLength;
+            public float    thickness;
+            public float    tolerance;
+            public float    passScore;
+            public float    holdSeconds;
+            public float    spiralTurns;
+            public float    spiralInnerRadius;
         }
 
         [Header("Drills")]
-        [SerializeField] private CircleDrill circleDrill;
-        [SerializeField] private LineDrill lineDrill;
-        [SerializeField] private ShapeDrill shapeDrill;
-        [SerializeField] private CursorController cursorController;
+        [SerializeField] private CircleDrill       circleDrill;
+        [SerializeField] private LineDrill         lineDrill;
+        [SerializeField] private ShapeDrill        shapeDrill;
+        [SerializeField] private InfinityLoopDrill infinityDrill;
+        [SerializeField] private SpiralDrill       spiralDrill;
+        [SerializeField] private CursorController  cursorController;
 
         [Header("Stages")]
         [SerializeField] private TrainingStage[] stages;
         [SerializeField, Min(0f)] private float difficultyThicknessMultiplier = 0.92f;
         [SerializeField, Min(0f)] private float difficultyToleranceMultiplier = 0.90f;
-        [SerializeField, Min(0f)] private float difficultySizeMultiplier = 0.97f;
+        [SerializeField, Min(0f)] private float difficultySizeMultiplier      = 0.97f;
 
-        public string CurrentStageName { get; private set; } = string.Empty;
-        public DrillKind CurrentDrillKind { get; private set; }
-        public int CurrentStageIndex { get; private set; }
-        public int DifficultyTier { get; private set; }
-        public int StageCount => stages != null ? stages.Length : 0;
-        public float CurrentAccuracy { get; private set; }
-        public float CurrentSmoothness { get; private set; }
-        public float CurrentSpeedConsistency { get; private set; }
-        public float CurrentTotalScore { get; private set; }
-        public float CurrentDeviation { get; private set; }
-        public float AverageScore { get; private set; }
-        public float PeakScore { get; private set; }
-        public float ElapsedSeconds { get; private set; }
-        public int CompletedStages { get; private set; }
-        public SessionState State { get; private set; } = SessionState.Ready;
-        public bool IsPaused => State == SessionState.Paused;
-        public float HoldProgress01 => activeStage.holdSeconds <= Mathf.Epsilon ? 0f : Mathf.Clamp01(successTimer / activeStage.holdSeconds);
-        public bool IsRunning => State == SessionState.Running;
-        public bool HasStarted => State != SessionState.Ready;
-        public string ControllerHintText => "Controller: Start = begin/restart, Retry/R = stop, LT/ADS = precision mode, RT = fire";
+        // ── Public state ──────────────────────────────────────────────────────
+        public string       CurrentStageName        { get; private set; } = string.Empty;
+        public DrillKind    CurrentDrillKind        { get; private set; }
+        public int          CurrentStageIndex       { get; private set; }
+        public int          DifficultyTier          { get; private set; }
+        public int          StageCount              => stages != null ? stages.Length : 0;
+        public float        CurrentAccuracy         { get; private set; }
+        public float        CurrentSmoothness       { get; private set; }
+        public float        CurrentSpeedConsistency { get; private set; }
+        public float        CurrentTotalScore       { get; private set; }
+        public float        CurrentDeviation        { get; private set; }
+        public float        AverageScore            { get; private set; }
+        public float        PeakScore               { get; private set; }
+        public float        ElapsedSeconds          { get; private set; }
+        public int          CompletedStages         { get; private set; }
+        public SessionState State                   { get; private set; } = SessionState.Ready;
+        public bool         IsPaused                => State == SessionState.Paused;
+        public bool         IsRunning               => State == SessionState.Running;
+        public bool         HasStarted              => State != SessionState.Ready;
+        public float        HoldProgress01          => activeStage.holdSeconds <= Mathf.Epsilon ? 0f : Mathf.Clamp01(successTimer / activeStage.holdSeconds);
+        public int          InfinityLoopCrossings   => infinityDrill != null ? infinityDrill.CrossingCount : 0;
+        public string       ControllerHintText      => "Start=begin/restart  Retry/R=stop  LT=precision  RT=fire";
 
         private TrainingStage activeStage;
-        private float successTimer;
-        private bool initialized;
+        private float         successTimer;
+        private bool          initialized;
 
-        private void Awake()
+        // ── Unity ─────────────────────────────────────────────────────────────
+        private void Awake() => EnsureStages();
+
+        // ── Public API ────────────────────────────────────────────────────────
+        public void SetReferences(CircleDrill cd, LineDrill ld, ShapeDrill sd, CursorController cc)
         {
-            EnsureStages();
+            circleDrill = cd; lineDrill = ld; shapeDrill = sd; cursorController = cc;
         }
 
-        private void Start()
+        public void SetExtendedReferences(InfinityLoopDrill id, SpiralDrill sd2)
         {
-        }
-
-        public void SetReferences(CircleDrill newCircleDrill, LineDrill newLineDrill, ShapeDrill newShapeDrill, CursorController newCursorController)
-        {
-            circleDrill = newCircleDrill;
-            lineDrill = newLineDrill;
-            shapeDrill = newShapeDrill;
-            cursorController = newCursorController;
+            infinityDrill = id; spiralDrill = sd2;
         }
 
         public void BeginSession()
         {
             EnsureStages();
-            initialized = true;
-            State = SessionState.Running;
-            DifficultyTier = 0;
-            CurrentStageIndex = 0;
-            successTimer = 0f;
-            ElapsedSeconds = 0f;
-            CompletedStages = 0;
-            PeakScore = 0f;
-            AverageScore = 0f;
-            IsRunning = true;
-            ActivateStage(CurrentStageIndex);
+            initialized = true; State = SessionState.Running;
+            DifficultyTier = 0; CurrentStageIndex = 0;
+            successTimer = ElapsedSeconds = CompletedStages = 0;
+            PeakScore = AverageScore = 0f;
+            ActivateStage(0);
         }
 
-        public void StopSession()
-        {
-            State = SessionState.Paused;
-            SetAllDrillsInactive();
-            ResetLiveMetrics();
-        }
+        public void StopSession()    { State = SessionState.Paused;  SetAllInactive(); ResetLive(); }
+        public void EndSession()     { State = SessionState.Results; SetAllInactive(); }
+        public void RestartSession() { State = SessionState.Ready;   SetAllInactive(); ResetLive(); BeginSession(); }
 
         public void PauseSession()
         {
-            if (State == SessionState.Running)
-            {
-                State = SessionState.Paused;
-                SetAllDrillsInactive();
-            }
+            if (State == SessionState.Running) { State = SessionState.Paused; SetAllInactive(); }
         }
-
         public void ResumeSession()
         {
-            if (State == SessionState.Paused)
-            {
-                State = SessionState.Running;
-                ActivateStage(CurrentStageIndex);
-            }
+            if (State == SessionState.Paused) { State = SessionState.Running; ActivateStage(CurrentStageIndex); }
         }
 
-        public void EndSession()
-        {
-            State = SessionState.Results;
-            SetAllDrillsInactive();
-        }
-
-        public void RestartSession()
-        {
-            State = SessionState.Ready;
-            SetAllDrillsInactive();
-            ResetLiveMetrics();
-            BeginSession();
-        }
-
-        public void SelectStage(int stageIndex)
+        public void SelectStage(int index)
         {
             EnsureStages();
-
-            if (StageCount == 0)
-            {
-                return;
-            }
-
-            CurrentStageIndex = Mathf.Clamp(stageIndex, 0, StageCount - 1);
-            State = SessionState.Running;
-            successTimer = 0f;
+            if (StageCount == 0) return;
+            CurrentStageIndex = Mathf.Clamp(index, 0, StageCount - 1);
+            State = SessionState.Running; successTimer = 0f; initialized = true;
             ActivateStage(CurrentStageIndex);
         }
 
-        public void SetDifficultyProfile(float sizeMultiplier, float thicknessMultiplier, float toleranceMultiplier)
+        public void SetDifficultyProfile(float size, float thick, float tol)
         {
-            difficultySizeMultiplier = Mathf.Clamp(sizeMultiplier, 0.6f, 1f);
-            difficultyThicknessMultiplier = Mathf.Clamp(thicknessMultiplier, 0.6f, 1f);
-            difficultyToleranceMultiplier = Mathf.Clamp(toleranceMultiplier, 0.6f, 1f);
+            difficultySizeMultiplier      = Mathf.Clamp(size,  0.6f, 1f);
+            difficultyThicknessMultiplier = Mathf.Clamp(thick, 0.6f, 1f);
+            difficultyToleranceMultiplier = Mathf.Clamp(tol,   0.6f, 1f);
         }
 
-        public void Tick(Vector2 cursorPosition, float deltaTime)
+        public void Tick(Vector2 pos, float dt)
         {
-            if (!initialized || !IsRunning || deltaTime <= 0f)
-            {
-                return;
-            }
-
-            ElapsedSeconds += deltaTime;
+            if (!initialized || !IsRunning || dt <= 0f) return;
+            ElapsedSeconds += dt;
 
             switch (CurrentDrillKind)
             {
-                case DrillKind.Circle:
-                    if (circleDrill != null)
-                    {
-                        circleDrill.Tick(cursorPosition, deltaTime);
-                        CurrentAccuracy = circleDrill.AccuracyScore;
-                        CurrentSmoothness = circleDrill.SmoothnessScore;
-                        CurrentSpeedConsistency = circleDrill.SpeedConsistencyScore;
-                        CurrentTotalScore = circleDrill.TotalScore;
-                        CurrentDeviation = circleDrill.CurrentDeviation;
-                    }
+                case DrillKind.Circle when circleDrill != null:
+                    circleDrill.Tick(pos, dt);
+                    Read(circleDrill.AccuracyScore, circleDrill.SmoothnessScore,
+                         circleDrill.SpeedConsistencyScore, circleDrill.TotalScore, circleDrill.CurrentDeviation);
                     break;
-                case DrillKind.Line:
-                    if (lineDrill != null)
-                    {
-                        lineDrill.Tick(cursorPosition, deltaTime);
-                        CurrentAccuracy = lineDrill.AccuracyScore;
-                        CurrentSmoothness = lineDrill.SmoothnessScore;
-                        CurrentSpeedConsistency = lineDrill.SpeedConsistencyScore;
-                        CurrentTotalScore = lineDrill.TotalScore;
-                        CurrentDeviation = lineDrill.CurrentDeviation;
-                    }
+                case DrillKind.Line when lineDrill != null:
+                    lineDrill.Tick(pos, dt);
+                    Read(lineDrill.AccuracyScore, lineDrill.SmoothnessScore,
+                         lineDrill.SpeedConsistencyScore, lineDrill.TotalScore, lineDrill.CurrentDeviation);
                     break;
-                case DrillKind.Shape:
-                    if (shapeDrill != null)
-                    {
-                        shapeDrill.Tick(cursorPosition, deltaTime);
-                        CurrentAccuracy = shapeDrill.AccuracyScore;
-                        CurrentSmoothness = shapeDrill.SmoothnessScore;
-                        CurrentSpeedConsistency = shapeDrill.SpeedConsistencyScore;
-                        CurrentTotalScore = shapeDrill.TotalScore;
-                        CurrentDeviation = shapeDrill.CurrentDeviation;
-                    }
+                case DrillKind.Shape when shapeDrill != null:
+                    shapeDrill.Tick(pos, dt);
+                    Read(shapeDrill.AccuracyScore, shapeDrill.SmoothnessScore,
+                         shapeDrill.SpeedConsistencyScore, shapeDrill.TotalScore, shapeDrill.CurrentDeviation);
+                    break;
+                case DrillKind.InfinityLoop when infinityDrill != null:
+                    infinityDrill.Tick(pos, dt);
+                    Read(infinityDrill.AccuracyScore, infinityDrill.SmoothnessScore,
+                         infinityDrill.SpeedConsistencyScore, infinityDrill.TotalScore, infinityDrill.CurrentDeviation);
+                    break;
+                case DrillKind.Spiral when spiralDrill != null:
+                    spiralDrill.Tick(pos, dt);
+                    Read(spiralDrill.AccuracyScore, spiralDrill.SmoothnessScore,
+                         spiralDrill.SpeedConsistencyScore, spiralDrill.TotalScore, spiralDrill.CurrentDeviation);
                     break;
             }
 
             AverageScore = Mathf.Lerp(AverageScore, CurrentTotalScore, 0.08f);
-            PeakScore = Mathf.Max(PeakScore, CurrentTotalScore);
-
-            UpdateProgress(deltaTime);
+            PeakScore    = Mathf.Max(PeakScore, CurrentTotalScore);
+            TickProgress(dt);
         }
 
+        // ── Queries ───────────────────────────────────────────────────────────
         public string GetDrillInstructions()
         {
-            if (!HasStarted)
-            {
-                return "Press Start to begin training.";
-            }
-
-            if (!IsRunning)
-            {
-                return "Session stopped. Press Start or Retry to continue.";
-            }
-
+            if (!HasStarted) return "Press Start to begin training.";
+            if (!IsRunning)  return "Session stopped. Press Start or Retry to continue.";
             return CurrentDrillKind switch
             {
-                DrillKind.Circle => "Trace the circle smoothly.",
-                DrillKind.Line => "Hold the stick on the line with constant speed.",
-                DrillKind.Shape => "Follow the full shape without leaving the path.",
-                _ => string.Empty
+                DrillKind.Circle       => "Trace the circle smoothly.",
+                DrillKind.Line         => "Hold the stick on the line with constant speed.",
+                DrillKind.Shape        => "Follow the full shape without leaving the path.",
+                DrillKind.InfinityLoop => "Trace the infinity loop — clean crossings earn bonus points.",
+                DrillKind.Spiral       => "Follow the spiral inward with steady speed.",
+                _                      => string.Empty
             };
         }
 
-        public string GetStageName(int stageIndex)
+        public string GetStageName(int i)    => (stages != null && i >= 0 && i < stages.Length) ? stages[i].stageName : string.Empty;
+        public DrillKind GetStageKind(int i) => (stages != null && i >= 0 && i < stages.Length) ? stages[i].drillKind : DrillKind.Circle;
+
+        public string GetStageSummary(int i)
         {
-            if (stages == null || stageIndex < 0 || stageIndex >= stages.Length)
+            if (stages == null || i < 0 || i >= stages.Length) return string.Empty;
+            var s = stages[i];
+            return s.drillKind switch
             {
-                return string.Empty;
-            }
-
-            return stages[stageIndex].stageName;
-        }
-
-        public DrillKind GetStageKind(int stageIndex)
-        {
-            if (stages == null || stageIndex < 0 || stageIndex >= stages.Length)
-            {
-                return DrillKind.Circle;
-            }
-
-            return stages[stageIndex].drillKind;
-        }
-
-        public string GetStageSummary(int stageIndex)
-        {
-            if (stages == null || stageIndex < 0 || stageIndex >= stages.Length)
-            {
-                return string.Empty;
-            }
-
-            TrainingStage stage = stages[stageIndex];
-            return stage.drillKind switch
-            {
-                DrillKind.Circle => $"Circle • R={stage.radius:0.0}",
-                DrillKind.Line => $"Line • {stage.lineOrientation}",
-                DrillKind.Shape => $"Shape • {stage.shapeType}",
-                _ => stage.stageName
+                DrillKind.Circle       => $"Circle • R={s.radius:0.0}",
+                DrillKind.Line         => $"Line • {s.lineOrientation}",
+                DrillKind.Shape        => $"Shape • {s.shapeType}",
+                DrillKind.InfinityLoop => $"∞ Loop • Scale={s.radius:0.0}",
+                DrillKind.Spiral       => $"Spiral • {s.spiralTurns:0.0} turns",
+                _                      => s.stageName
             };
         }
 
-        private void UpdateProgress(float deltaTime)
+        // ── Private ───────────────────────────────────────────────────────────
+        private void Read(float acc, float smooth, float speed, float total, float dev)
+        {
+            CurrentAccuracy = acc; CurrentSmoothness = smooth;
+            CurrentSpeedConsistency = speed; CurrentTotalScore = total; CurrentDeviation = dev;
+        }
+
+        private void TickProgress(float dt)
         {
             if (CurrentTotalScore >= activeStage.passScore)
             {
-                successTimer += deltaTime;
-                if (successTimer >= activeStage.holdSeconds)
-                {
-                    AdvanceStage();
-                }
+                successTimer += dt;
+                if (successTimer >= activeStage.holdSeconds) AdvanceStage();
             }
-            else
-            {
-                successTimer = 0f;
-            }
+            else successTimer = 0f;
         }
 
         private void AdvanceStage()
         {
-            successTimer = 0f;
-            CompletedStages++;
-            CurrentStageIndex++;
-
-            if (CurrentStageIndex >= StageCount)
-            {
-                CurrentStageIndex = 0;
-                DifficultyTier++;
-                EndSession();
-                return;
-            }
-
+            successTimer = 0f; CompletedStages++; CurrentStageIndex++;
+            if (CurrentStageIndex >= StageCount) { CurrentStageIndex = 0; DifficultyTier++; EndSession(); return; }
             ActivateStage(CurrentStageIndex);
         }
 
-        private void ActivateStage(int stageIndex)
+        private void ActivateStage(int index)
         {
-            if (StageCount == 0)
-            {
-                return;
-            }
-
-            activeStage = stages[stageIndex];
+            if (StageCount == 0) return;
+            activeStage = stages[index];
             CurrentStageName = activeStage.stageName;
             CurrentDrillKind = activeStage.drillKind;
+            SetAllInactive();
 
-            SetActiveDrillObjects(false);
+            float r   = S(activeStage.radius,    difficultySizeMultiplier);
+            float th  = S(activeStage.thickness, difficultyThicknessMultiplier);
+            float tol = S(activeStage.tolerance, difficultyToleranceMultiplier);
 
             switch (activeStage.drillKind)
             {
-                case DrillKind.Circle:
-                    if (circleDrill != null)
-                    {
-                        float radius = ScaleByDifficulty(activeStage.radius, difficultySizeMultiplier);
-                        float thickness = ScaleByDifficulty(activeStage.thickness, difficultyThicknessMultiplier);
-                        float tolerance = ScaleByDifficulty(activeStage.tolerance, difficultyToleranceMultiplier);
-                        circleDrill.SetParameters(activeStage.center, radius, thickness, tolerance);
-                        circleDrill.BeginDrill();
-                        circleDrill.gameObject.SetActive(true);
-                        SetCursorTo(circleDrill.StartPosition);
-                    }
-                    break;
-                case DrillKind.Line:
-                    if (lineDrill != null)
-                    {
-                        float length = ScaleByDifficulty(activeStage.lineLength, difficultySizeMultiplier);
-                        float thickness = ScaleByDifficulty(activeStage.thickness, difficultyThicknessMultiplier);
-                        float tolerance = ScaleByDifficulty(activeStage.tolerance, difficultyToleranceMultiplier);
-                        lineDrill.SetParameters(activeStage.lineOrientation, length, thickness, tolerance, activeStage.center);
-                        lineDrill.BeginDrill();
-                        lineDrill.gameObject.SetActive(true);
-                        SetCursorTo(lineDrill.StartPosition);
-                    }
-                    break;
-                case DrillKind.Shape:
-                    if (shapeDrill != null)
-                    {
-                        float radius = ScaleByDifficulty(activeStage.radius, difficultySizeMultiplier);
-                        float thickness = ScaleByDifficulty(activeStage.thickness, difficultyThicknessMultiplier);
-                        float tolerance = ScaleByDifficulty(activeStage.tolerance, difficultyToleranceMultiplier);
-                        shapeDrill.SetParameters(activeStage.shapeType, radius, thickness, tolerance, activeStage.center);
-                        shapeDrill.BeginDrill();
-                        shapeDrill.gameObject.SetActive(true);
-                        SetCursorTo(shapeDrill.StartPosition);
-                    }
-                    break;
+                case DrillKind.Circle when circleDrill != null:
+                    circleDrill.SetParameters(activeStage.center, r, th, tol);
+                    circleDrill.BeginDrill(); circleDrill.gameObject.SetActive(true);
+                    SetCursor(circleDrill.StartPosition); break;
+
+                case DrillKind.Line when lineDrill != null:
+                    float len = S(activeStage.lineLength, difficultySizeMultiplier);
+                    lineDrill.SetParameters(activeStage.lineOrientation, len, th, tol, activeStage.center);
+                    lineDrill.BeginDrill(); lineDrill.gameObject.SetActive(true);
+                    SetCursor(lineDrill.StartPosition); break;
+
+                case DrillKind.Shape when shapeDrill != null:
+                    shapeDrill.SetParameters(activeStage.shapeType, r, th, tol, activeStage.center);
+                    shapeDrill.BeginDrill(); shapeDrill.gameObject.SetActive(true);
+                    SetCursor(shapeDrill.StartPosition); break;
+
+                case DrillKind.InfinityLoop when infinityDrill != null:
+                    infinityDrill.SetParameters(activeStage.center, r, th, tol);
+                    infinityDrill.BeginDrill(); infinityDrill.gameObject.SetActive(true);
+                    SetCursor(infinityDrill.StartPosition); break;
+
+                case DrillKind.Spiral when spiralDrill != null:
+                    spiralDrill.SetParameters(activeStage.center, r, th, tol);
+                    spiralDrill.BeginDrill(); spiralDrill.gameObject.SetActive(true);
+                    SetCursor(spiralDrill.StartPosition); break;
             }
         }
 
-        private void SetCursorTo(Vector2 position)
+        private void SetCursor(Vector2 p)  { if (cursorController != null) cursorController.SetPosition(p); }
+        private void SetAllInactive()
         {
-            if (cursorController != null)
-            {
-                cursorController.SetPosition(position);
-            }
+            if (circleDrill   != null) circleDrill.gameObject.SetActive(false);
+            if (lineDrill     != null) lineDrill.gameObject.SetActive(false);
+            if (shapeDrill    != null) shapeDrill.gameObject.SetActive(false);
+            if (infinityDrill != null) infinityDrill.gameObject.SetActive(false);
+            if (spiralDrill   != null) spiralDrill.gameObject.SetActive(false);
         }
+        private void ResetLive() =>
+            CurrentAccuracy = CurrentSmoothness = CurrentSpeedConsistency =
+            CurrentTotalScore = CurrentDeviation = AverageScore = 0f;
 
-        private void SetActiveDrillObjects(bool isActive)
-        {
-            if (circleDrill != null)
-            {
-                circleDrill.gameObject.SetActive(isActive && activeStage.drillKind == DrillKind.Circle);
-            }
-
-            if (lineDrill != null)
-            {
-                lineDrill.gameObject.SetActive(isActive && activeStage.drillKind == DrillKind.Line);
-            }
-
-            if (shapeDrill != null)
-            {
-                shapeDrill.gameObject.SetActive(isActive && activeStage.drillKind == DrillKind.Shape);
-            }
-        }
-
-        private void SetAllDrillsInactive()
-        {
-            if (circleDrill != null)
-            {
-                circleDrill.gameObject.SetActive(false);
-            }
-
-            if (lineDrill != null)
-            {
-                lineDrill.gameObject.SetActive(false);
-            }
-
-            if (shapeDrill != null)
-            {
-                shapeDrill.gameObject.SetActive(false);
-            }
-        }
-
-        private void ResetLiveMetrics()
-        {
-            CurrentAccuracy = 0f;
-            CurrentSmoothness = 0f;
-            CurrentSpeedConsistency = 0f;
-            CurrentTotalScore = 0f;
-            CurrentDeviation = 0f;
-            AverageScore = 0f;
-        }
-
-        private float ScaleByDifficulty(float value, float multiplier)
-        {
-            return value * Mathf.Pow(multiplier, DifficultyTier);
-        }
+        private float S(float v, float m) => v * Mathf.Pow(m, DifficultyTier);
 
         private void EnsureStages()
         {
-            if (stages != null && stages.Length > 0)
-            {
-                return;
-            }
-
+            if (stages != null && stages.Length > 0) return;
             stages = new[]
             {
-                new TrainingStage
-                {
-                    stageName = "Circle Warmup",
-                    drillKind = DrillKind.Circle,
-                    center = Vector2.zero,
-                    radius = 2.4f,
-                    thickness = 0.36f,
-                    tolerance = 0.22f,
-                    passScore = 78f,
-                    holdSeconds = 2.5f
-                },
-                new TrainingStage
-                {
-                    stageName = "Horizontal Line",
-                    drillKind = DrillKind.Line,
-                    lineOrientation = LineDrill.LineOrientation.Horizontal,
-                    center = Vector2.zero,
-                    lineLength = 6.2f,
-                    thickness = 0.28f,
-                    tolerance = 0.16f,
-                    passScore = 80f,
-                    holdSeconds = 2.5f
-                },
-                new TrainingStage
-                {
-                    stageName = "Vertical Line",
-                    drillKind = DrillKind.Line,
-                    lineOrientation = LineDrill.LineOrientation.Vertical,
-                    center = Vector2.zero,
-                    lineLength = 6.0f,
-                    thickness = 0.26f,
-                    tolerance = 0.15f,
-                    passScore = 80f,
-                    holdSeconds = 2.5f
-                },
-                new TrainingStage
-                {
-                    stageName = "Diagonal Line",
-                    drillKind = DrillKind.Line,
-                    lineOrientation = LineDrill.LineOrientation.DiagonalUp,
-                    center = Vector2.zero,
-                    lineLength = 6.0f,
-                    thickness = 0.24f,
-                    tolerance = 0.14f,
-                    passScore = 82f,
-                    holdSeconds = 2.5f
-                },
-                new TrainingStage
-                {
-                    stageName = "Triangle Trace",
-                    drillKind = DrillKind.Shape,
-                    shapeType = ShapeDrill.ShapeType.Triangle,
-                    center = Vector2.zero,
-                    radius = 2.1f,
-                    thickness = 0.22f,
-                    tolerance = 0.18f,
-                    passScore = 82f,
-                    holdSeconds = 3.0f
-                },
-                new TrainingStage
-                {
-                    stageName = "Square Trace",
-                    drillKind = DrillKind.Shape,
-                    shapeType = ShapeDrill.ShapeType.Square,
-                    center = Vector2.zero,
-                    radius = 2.0f,
-                    thickness = 0.20f,
-                    tolerance = 0.17f,
-                    passScore = 84f,
-                    holdSeconds = 3.0f
-                },
-                new TrainingStage
-                {
-                    stageName = "Pentagon Trace",
-                    drillKind = DrillKind.Shape,
-                    shapeType = ShapeDrill.ShapeType.Pentagon,
-                    center = Vector2.zero,
-                    radius = 2.0f,
-                    thickness = 0.18f,
-                    tolerance = 0.16f,
-                    passScore = 85f,
-                    holdSeconds = 3.0f
-                }
+                new TrainingStage { stageName="Circle Warmup",   drillKind=DrillKind.Circle,       center=Vector2.zero, radius=2.4f, thickness=0.36f, tolerance=0.22f, passScore=78f, holdSeconds=2.5f },
+                new TrainingStage { stageName="Horizontal Line", drillKind=DrillKind.Line,         lineOrientation=LineDrill.LineOrientation.Horizontal, center=Vector2.zero, lineLength=6.2f, thickness=0.28f, tolerance=0.16f, passScore=80f, holdSeconds=2.5f },
+                new TrainingStage { stageName="Vertical Line",   drillKind=DrillKind.Line,         lineOrientation=LineDrill.LineOrientation.Vertical,   center=Vector2.zero, lineLength=6.0f, thickness=0.26f, tolerance=0.15f, passScore=80f, holdSeconds=2.5f },
+                new TrainingStage { stageName="Diagonal Line",   drillKind=DrillKind.Line,         lineOrientation=LineDrill.LineOrientation.DiagonalUp, center=Vector2.zero, lineLength=6.0f, thickness=0.24f, tolerance=0.14f, passScore=82f, holdSeconds=2.5f },
+                new TrainingStage { stageName="Triangle Trace",  drillKind=DrillKind.Shape,        shapeType=ShapeDrill.ShapeType.Triangle, center=Vector2.zero, radius=2.1f, thickness=0.22f, tolerance=0.18f, passScore=82f, holdSeconds=3.0f },
+                new TrainingStage { stageName="Square Trace",    drillKind=DrillKind.Shape,        shapeType=ShapeDrill.ShapeType.Square,   center=Vector2.zero, radius=2.0f, thickness=0.20f, tolerance=0.17f, passScore=84f, holdSeconds=3.0f },
+                new TrainingStage { stageName="Pentagon Trace",  drillKind=DrillKind.Shape,        shapeType=ShapeDrill.ShapeType.Pentagon, center=Vector2.zero, radius=2.0f, thickness=0.18f, tolerance=0.16f, passScore=85f, holdSeconds=3.0f },
+                new TrainingStage { stageName="Infinity Loop",   drillKind=DrillKind.InfinityLoop, center=Vector2.zero, radius=2.2f, thickness=0.24f, tolerance=0.20f, passScore=80f, holdSeconds=3.5f },
+                new TrainingStage { stageName="Spiral In",       drillKind=DrillKind.Spiral,       center=Vector2.zero, radius=2.4f, spiralInnerRadius=0.4f, spiralTurns=2.5f, thickness=0.22f, tolerance=0.18f, passScore=80f, holdSeconds=3.5f },
             };
         }
     }
