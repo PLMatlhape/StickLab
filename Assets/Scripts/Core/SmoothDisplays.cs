@@ -4,224 +4,215 @@ using StickLab.Utils;
 
 namespace StickLab.Core
 {
-    /// <summary>
-    /// Smoothly animates a numeric value from current to target.
-    /// Used for score, metrics, etc. to avoid jittery instant updates.
-    /// </summary>
+    /// <summary>Smoothly animates a numeric Text value.</summary>
     public class SmoothNumberDisplay
     {
-        private Text targetText;
-        private float currentValue;
-        private float targetValue;
+        private Text           targetText;
+        private float          currentValue;
+        private float          targetValue;
         private AnimationTweener activeTween;
-        private string formatString;
+        private string         formatString;
 
         public float CurrentValue => currentValue;
-        public float TargetValue => targetValue;
+        public float TargetValue  => targetValue;
 
-        public SmoothNumberDisplay(Text textComponent, string format = "0.0")
+        public SmoothNumberDisplay(Text text, string format = "0.0")
         {
-            targetText = textComponent;
+            targetText   = text;
             formatString = format;
-            currentValue = 0f;
-            targetValue = 0f;
         }
 
-        public void SetValue(float newValue, float animationDuration = 0.3f)
+        public void SetValue(float newValue, float duration = 0.3f)
         {
             if (targetText == null) return;
-
             targetValue = newValue;
-
-            // Stop existing animation
-            if (activeTween != null && activeTween.IsActive)
+            activeTween?.Stop();
+            float start = currentValue;
+            activeTween = TweenerManager.Create(duration, t =>
             {
-                activeTween.Stop();
-            }
-
-            // Create smooth transition
-            float startValue = currentValue;
-            activeTween = TweenerManager.Create(
-                animationDuration,
-                t =>
-                {
-                    currentValue = Mathf.Lerp(startValue, targetValue, t);
-                    if (targetText != null)
-                    {
-                        targetText.text = currentValue.ToString(formatString);
-                    }
-                },
-                AnimationTweener.EasingType.EaseOutCubic
-            );
+                currentValue = Mathf.Lerp(start, targetValue, t);
+                if (targetText != null) targetText.text = currentValue.ToString(formatString);
+            }, AnimationTweener.EasingType.EaseOutCubic);
         }
 
         public void SetValueInstant(float newValue)
         {
-            currentValue = newValue;
-            targetValue = newValue;
-            
-            if (activeTween != null && activeTween.IsActive)
-            {
-                activeTween.Stop();
-            }
-
-            if (targetText != null)
-            {
-                targetText.text = currentValue.ToString(formatString);
-            }
+            activeTween?.Stop();
+            currentValue = targetValue = newValue;
+            if (targetText != null) targetText.text = currentValue.ToString(formatString);
         }
 
-        public void ForceComplete()
-        {
-            if (activeTween != null && activeTween.IsActive)
-            {
-                activeTween.Complete();
-            }
-        }
+        public void ForceComplete() => activeTween?.Complete();
     }
 
-    /// <summary>
-    /// Smoothly animates a fill amount (like progress bars or gauges).
-    /// </summary>
+    /// <summary>Smoothly animates an Image fill amount.</summary>
     public class SmoothFillDisplay
     {
-        private Image targetImage;
-        private float currentFill;
-        private float targetFill;
+        private Image          targetImage;
+        private float          currentFill;
+        private float          targetFill;
         private AnimationTweener activeTween;
 
         public float CurrentFill => currentFill;
-        public float TargetFill => targetFill;
+        public float TargetFill  => targetFill;
 
-        public SmoothFillDisplay(Image imageComponent)
+        public SmoothFillDisplay(Image image)
         {
-            targetImage = imageComponent;
-            currentFill = 0f;
-            targetFill = 0f;
+            targetImage = image;
         }
 
-        public void SetFill(float newFill, float animationDuration = 0.25f)
+        public void SetFill(float newFill, float duration = 0.25f)
         {
             if (targetImage == null) return;
-
             newFill = Mathf.Clamp01(newFill);
             targetFill = newFill;
-
-            // Stop existing animation
-            if (activeTween != null && activeTween.IsActive)
+            activeTween?.Stop();
+            float start = currentFill;
+            activeTween = TweenerManager.Create(duration, t =>
             {
-                activeTween.Stop();
-            }
-
-            float startFill = currentFill;
-            activeTween = TweenerManager.Create(
-                animationDuration,
-                t =>
-                {
-                    currentFill = Mathf.Lerp(startFill, targetFill, t);
-                    if (targetImage != null)
-                    {
-                        targetImage.fillAmount = currentFill;
-                    }
-                },
-                AnimationTweener.EasingType.EaseOutCubic
-            );
+                currentFill = Mathf.Lerp(start, targetFill, t);
+                if (targetImage != null) targetImage.fillAmount = currentFill;
+            }, AnimationTweener.EasingType.EaseOutCubic);
         }
 
         public void SetFillInstant(float newFill)
         {
-            newFill = Mathf.Clamp01(newFill);
-            currentFill = newFill;
-            targetFill = newFill;
-
-            if (activeTween != null && activeTween.IsActive)
-            {
-                activeTween.Stop();
-            }
-
-            if (targetImage != null)
-            {
-                targetImage.fillAmount = currentFill;
-            }
+            activeTween?.Stop();
+            currentFill = targetFill = Mathf.Clamp01(newFill);
+            if (targetImage != null) targetImage.fillAmount = currentFill;
         }
 
-        public void ForceComplete()
-        {
-            if (activeTween != null && activeTween.IsActive)
-            {
-                activeTween.Complete();
-            }
-        }
+        public void ForceComplete() => activeTween?.Complete();
     }
 
-    /// <summary>
-    /// Smoothly animates color transitions.
-    /// </summary>
+    /// <summary>Smoothly animates a Graphic color.</summary>
     public class SmoothColorDisplay
     {
-        private Graphic targetGraphic;
-        private Color currentColor;
-        private Color targetColor;
+        private Graphic        targetGraphic;
+        private Color          currentColor;
+        private Color          targetColor;
         private AnimationTweener activeTween;
 
         public Color CurrentColor => currentColor;
-        public Color TargetColor => targetColor;
 
-        public SmoothColorDisplay(Graphic graphicComponent)
+        public SmoothColorDisplay(Graphic graphic)
         {
-            targetGraphic = graphicComponent;
-            currentColor = Color.white;
-            targetColor = Color.white;
+            targetGraphic = graphic;
+            currentColor  = graphic != null ? graphic.color : Color.white;
+            targetColor   = currentColor;
         }
 
-        public void SetColor(Color newColor, float animationDuration = 0.2f)
+        public void SetColor(Color newColor, float duration = 0.2f)
         {
             if (targetGraphic == null) return;
-
             targetColor = newColor;
-
-            if (activeTween != null && activeTween.IsActive)
+            activeTween?.Stop();
+            Color start = currentColor;
+            activeTween = TweenerManager.Create(duration, t =>
             {
-                activeTween.Stop();
-            }
-
-            Color startColor = targetGraphic.color;
-            activeTween = TweenerManager.Create(
-                animationDuration,
-                t =>
-                {
-                    currentColor = Color.Lerp(startColor, targetColor, t);
-                    if (targetGraphic != null)
-                    {
-                        targetGraphic.color = currentColor;
-                    }
-                },
-                AnimationTweener.EasingType.EaseOutCubic
-            );
+                currentColor = Color.Lerp(start, targetColor, t);
+                if (targetGraphic != null) targetGraphic.color = currentColor;
+            }, AnimationTweener.EasingType.EaseOutCubic);
         }
 
         public void SetColorInstant(Color newColor)
         {
-            currentColor = newColor;
-            targetColor = newColor;
-
-            if (activeTween != null && activeTween.IsActive)
-            {
-                activeTween.Stop();
-            }
-
-            if (targetGraphic != null)
-            {
-                targetGraphic.color = newColor;
-            }
+            activeTween?.Stop();
+            currentColor = targetColor = newColor;
+            if (targetGraphic != null) targetGraphic.color = newColor;
         }
 
-        public void ForceComplete()
+        public void ForceComplete() => activeTween?.Complete();
+    }
+
+    /// <summary>
+    /// Fade a CanvasGroup in/out.
+    /// FIX: tracks visible state so FadeIn/FadeOut called every frame
+    /// does NOT restart the tween on every call — only transitions on state change.
+    /// </summary>
+    public class SmoothPanelTransition
+    {
+        private CanvasGroup      canvasGroup;
+        private AnimationTweener activeTween;
+        private bool             isVisible;      // FIX: state guard
+        private bool             isFading;       // FIX: in-progress guard
+
+        public bool IsVisible => isVisible;
+
+        public SmoothPanelTransition(CanvasGroup group)
         {
-            if (activeTween != null && activeTween.IsActive)
+            canvasGroup = group;
+        }
+
+        /// <summary>Only starts a new fade-in if not already visible or fading in.</summary>
+        public void FadeIn(float duration = 0.3f)
+        {
+            if (canvasGroup == null) return;
+            // FIX: skip if already fully visible and not currently fading out
+            if (isVisible && !isFading) return;
+
+            isVisible = true;
+            isFading  = true;
+            activeTween?.Stop();
+
+            canvasGroup.blocksRaycasts = true;
+            float start = canvasGroup.alpha;
+
+            activeTween = TweenerManager.Create(duration, t =>
             {
-                activeTween.Complete();
-            }
+                if (canvasGroup != null) canvasGroup.alpha = Mathf.Lerp(start, 1f, t);
+            }, AnimationTweener.EasingType.EaseOutCubic);
+
+            activeTween.OnComplete(() =>
+            {
+                isFading = false;
+                if (canvasGroup != null)
+                {
+                    canvasGroup.alpha        = 1f;
+                    canvasGroup.interactable = true;
+                }
+            });
+        }
+
+        /// <summary>Only starts a new fade-out if not already hidden or fading out.</summary>
+        public void FadeOut(float duration = 0.25f)
+        {
+            if (canvasGroup == null) return;
+            // FIX: skip if already hidden and not currently fading in
+            if (!isVisible && !isFading) return;
+
+            isVisible = false;
+            isFading  = true;
+            activeTween?.Stop();
+
+            canvasGroup.interactable = false;
+            float start = canvasGroup.alpha;
+
+            activeTween = TweenerManager.Create(duration, t =>
+            {
+                if (canvasGroup != null) canvasGroup.alpha = Mathf.Lerp(start, 0f, t);
+            }, AnimationTweener.EasingType.EaseOutCubic);
+
+            activeTween.OnComplete(() =>
+            {
+                isFading = false;
+                if (canvasGroup != null)
+                {
+                    canvasGroup.alpha           = 0f;
+                    canvasGroup.blocksRaycasts  = false;
+                }
+            });
+        }
+
+        public void SetAlphaInstant(float alpha)
+        {
+            activeTween?.Stop();
+            isFading  = false;
+            isVisible = alpha > 0.5f;
+            if (canvasGroup == null) return;
+            canvasGroup.alpha           = alpha;
+            canvasGroup.interactable    = isVisible;
+            canvasGroup.blocksRaycasts  = isVisible;
         }
     }
 }

@@ -7,7 +7,7 @@ namespace StickLab.Core
     public class TrainingSessionManager : MonoBehaviour
     {
         public enum SessionState { Ready, Running, Paused, Results }
-        public enum DrillKind    { Circle, Line, Shape, InfinityLoop, Spiral }
+        public enum DrillKind    { Circle, Line, Shape, InfinityLoop, Spiral, ZigZag, WaveRider }
 
         [Serializable]
         public struct TrainingStage
@@ -25,15 +25,23 @@ namespace StickLab.Core
             public float    holdSeconds;
             public float    spiralTurns;
             public float    spiralInnerRadius;
+            public float    zigZagAmplitude;
+            public int      zigZagPeaks;
+            public float    waveAmplitude;
+            public int      waveCount;
         }
 
-        [Header("Drills")]
-        [SerializeField] private CircleDrill       circleDrill;
-        [SerializeField] private LineDrill         lineDrill;
-        [SerializeField] private ShapeDrill        shapeDrill;
+        [Header("Core Drills")]
+        [SerializeField] private CircleDrill    circleDrill;
+        [SerializeField] private LineDrill      lineDrill;
+        [SerializeField] private ShapeDrill     shapeDrill;
+        [SerializeField] private CursorController cursorController;
+
+        [Header("Extended Drills")]
         [SerializeField] private InfinityLoopDrill infinityDrill;
         [SerializeField] private SpiralDrill       spiralDrill;
-        [SerializeField] private CursorController  cursorController;
+        [SerializeField] private ZigZagDrill       zigZagDrill;
+        [SerializeField] private WaveRiderDrill    waveRiderDrill;
 
         [Header("Stages")]
         [SerializeField] private TrainingStage[] stages;
@@ -62,7 +70,7 @@ namespace StickLab.Core
         public bool         HasStarted              => State != SessionState.Ready;
         public float        HoldProgress01          => activeStage.holdSeconds <= Mathf.Epsilon ? 0f : Mathf.Clamp01(successTimer / activeStage.holdSeconds);
         public int          InfinityLoopCrossings   => infinityDrill != null ? infinityDrill.CrossingCount : 0;
-        public string       ControllerHintText      => "Start=begin/restart  Retry/R=stop  LT=precision  RT=fire";
+        public string       ControllerHintText      => "Start=begin  Retry/R=stop  LT=precision  RT=fire";
 
         private TrainingStage activeStage;
         private float         successTimer;
@@ -71,24 +79,23 @@ namespace StickLab.Core
         // ── Unity ─────────────────────────────────────────────────────────────
         private void Awake() => EnsureStages();
 
-        // ── Public API ────────────────────────────────────────────────────────
+        // ── Wiring ────────────────────────────────────────────────────────────
         public void SetReferences(CircleDrill cd, LineDrill ld, ShapeDrill sd, CursorController cc)
-        {
-            circleDrill = cd; lineDrill = ld; shapeDrill = sd; cursorController = cc;
-        }
+        { circleDrill = cd; lineDrill = ld; shapeDrill = sd; cursorController = cc; }
 
         public void SetExtendedReferences(InfinityLoopDrill id, SpiralDrill sd2)
-        {
-            infinityDrill = id; spiralDrill = sd2;
-        }
+        { infinityDrill = id; spiralDrill = sd2; }
 
+        public void SetExtendedReferences2(ZigZagDrill zd, WaveRiderDrill wd)
+        { zigZagDrill = zd; waveRiderDrill = wd; }
+
+        // ── Session control ───────────────────────────────────────────────────
         public void BeginSession()
         {
             EnsureStages();
             initialized = true; State = SessionState.Running;
-            DifficultyTier = 0; CurrentStageIndex = 0;
-            successTimer = ElapsedSeconds = CompletedStages = 0;
-            PeakScore = AverageScore = 0f;
+            DifficultyTier = CurrentStageIndex = CompletedStages = 0;
+            successTimer = ElapsedSeconds = PeakScore = AverageScore = 0f;
             ActivateStage(0);
         }
 
@@ -97,13 +104,10 @@ namespace StickLab.Core
         public void RestartSession() { State = SessionState.Ready;   SetAllInactive(); ResetLive(); BeginSession(); }
 
         public void PauseSession()
-        {
-            if (State == SessionState.Running) { State = SessionState.Paused; SetAllInactive(); }
-        }
+        { if (State == SessionState.Running) { State = SessionState.Paused; SetAllInactive(); } }
+
         public void ResumeSession()
-        {
-            if (State == SessionState.Paused) { State = SessionState.Running; ActivateStage(CurrentStageIndex); }
-        }
+        { if (State == SessionState.Paused) { State = SessionState.Running; ActivateStage(CurrentStageIndex); } }
 
         public void SelectStage(int index)
         {
@@ -121,6 +125,7 @@ namespace StickLab.Core
             difficultyToleranceMultiplier = Mathf.Clamp(tol,   0.6f, 1f);
         }
 
+        // ── Tick ──────────────────────────────────────────────────────────────
         public void Tick(Vector2 pos, float dt)
         {
             if (!initialized || !IsRunning || dt <= 0f) return;
@@ -153,6 +158,16 @@ namespace StickLab.Core
                     Read(spiralDrill.AccuracyScore, spiralDrill.SmoothnessScore,
                          spiralDrill.SpeedConsistencyScore, spiralDrill.TotalScore, spiralDrill.CurrentDeviation);
                     break;
+                case DrillKind.ZigZag when zigZagDrill != null:
+                    zigZagDrill.Tick(pos, dt);
+                    Read(zigZagDrill.AccuracyScore, zigZagDrill.SmoothnessScore,
+                         zigZagDrill.SpeedConsistencyScore, zigZagDrill.TotalScore, zigZagDrill.CurrentDeviation);
+                    break;
+                case DrillKind.WaveRider when waveRiderDrill != null:
+                    waveRiderDrill.Tick(pos, dt);
+                    Read(waveRiderDrill.AccuracyScore, waveRiderDrill.SmoothnessScore,
+                         waveRiderDrill.SpeedConsistencyScore, waveRiderDrill.TotalScore, waveRiderDrill.CurrentDeviation);
+                    break;
             }
 
             AverageScore = Mathf.Lerp(AverageScore, CurrentTotalScore, 0.08f);
@@ -172,12 +187,16 @@ namespace StickLab.Core
                 DrillKind.Shape        => "Follow the full shape without leaving the path.",
                 DrillKind.InfinityLoop => "Trace the infinity loop — clean crossings earn bonus points.",
                 DrillKind.Spiral       => "Follow the spiral inward with steady speed.",
+                DrillKind.ZigZag       => "Follow the zig-zag — sharp corners need quick direction changes.",
+                DrillKind.WaveRider    => "Ride the wave — smooth oscillations, constant speed.",
                 _                      => string.Empty
             };
         }
 
-        public string GetStageName(int i)    => (stages != null && i >= 0 && i < stages.Length) ? stages[i].stageName : string.Empty;
-        public DrillKind GetStageKind(int i) => (stages != null && i >= 0 && i < stages.Length) ? stages[i].drillKind : DrillKind.Circle;
+        public string GetStageName(int i)
+            => (stages != null && i >= 0 && i < stages.Length) ? stages[i].stageName : string.Empty;
+        public DrillKind GetStageKind(int i)
+            => (stages != null && i >= 0 && i < stages.Length) ? stages[i].drillKind : DrillKind.Circle;
 
         public string GetStageSummary(int i)
         {
@@ -190,31 +209,27 @@ namespace StickLab.Core
                 DrillKind.Shape        => $"Shape • {s.shapeType}",
                 DrillKind.InfinityLoop => $"∞ Loop • Scale={s.radius:0.0}",
                 DrillKind.Spiral       => $"Spiral • {s.spiralTurns:0.0} turns",
+                DrillKind.ZigZag       => $"Zig-Zag • {s.zigZagPeaks} peaks",
+                DrillKind.WaveRider    => $"Wave • {s.waveCount} cycles",
                 _                      => s.stageName
             };
         }
 
         // ── Private ───────────────────────────────────────────────────────────
-        private void Read(float acc, float smooth, float speed, float total, float dev)
-        {
-            CurrentAccuracy = acc; CurrentSmoothness = smooth;
-            CurrentSpeedConsistency = speed; CurrentTotalScore = total; CurrentDeviation = dev;
-        }
+        private void Read(float acc, float sm, float sp, float tot, float dev)
+        { CurrentAccuracy=acc; CurrentSmoothness=sm; CurrentSpeedConsistency=sp; CurrentTotalScore=tot; CurrentDeviation=dev; }
 
         private void TickProgress(float dt)
         {
             if (CurrentTotalScore >= activeStage.passScore)
-            {
-                successTimer += dt;
-                if (successTimer >= activeStage.holdSeconds) AdvanceStage();
-            }
+            { successTimer += dt; if (successTimer >= activeStage.holdSeconds) AdvanceStage(); }
             else successTimer = 0f;
         }
 
         private void AdvanceStage()
         {
             successTimer = 0f; CompletedStages++; CurrentStageIndex++;
-            if (CurrentStageIndex >= StageCount) { CurrentStageIndex = 0; DifficultyTier++; EndSession(); return; }
+            if (CurrentStageIndex >= StageCount) { CurrentStageIndex=0; DifficultyTier++; EndSession(); return; }
             ActivateStage(CurrentStageIndex);
         }
 
@@ -257,18 +272,36 @@ namespace StickLab.Core
                     spiralDrill.SetParameters(activeStage.center, r, th, tol);
                     spiralDrill.BeginDrill(); spiralDrill.gameObject.SetActive(true);
                     SetCursor(spiralDrill.StartPosition); break;
+
+                case DrillKind.ZigZag when zigZagDrill != null:
+                    float zLen = S(activeStage.lineLength, difficultySizeMultiplier);
+                    float zAmp = S(activeStage.zigZagAmplitude, difficultySizeMultiplier);
+                    zigZagDrill.SetParameters(activeStage.center, zLen, zAmp, th, tol);
+                    zigZagDrill.BeginDrill(); zigZagDrill.gameObject.SetActive(true);
+                    SetCursor(zigZagDrill.StartPosition); break;
+
+                case DrillKind.WaveRider when waveRiderDrill != null:
+                    float wLen = S(activeStage.lineLength, difficultySizeMultiplier);
+                    float wAmp = S(activeStage.waveAmplitude, difficultySizeMultiplier);
+                    waveRiderDrill.SetParameters(activeStage.center, wLen, wAmp, activeStage.waveCount, th, tol);
+                    waveRiderDrill.BeginDrill(); waveRiderDrill.gameObject.SetActive(true);
+                    SetCursor(waveRiderDrill.StartPosition); break;
             }
         }
 
-        private void SetCursor(Vector2 p)  { if (cursorController != null) cursorController.SetPosition(p); }
+        private void SetCursor(Vector2 p) { if (cursorController != null) cursorController.SetPosition(p); }
+
         private void SetAllInactive()
         {
-            if (circleDrill   != null) circleDrill.gameObject.SetActive(false);
-            if (lineDrill     != null) lineDrill.gameObject.SetActive(false);
-            if (shapeDrill    != null) shapeDrill.gameObject.SetActive(false);
-            if (infinityDrill != null) infinityDrill.gameObject.SetActive(false);
-            if (spiralDrill   != null) spiralDrill.gameObject.SetActive(false);
+            if (circleDrill    != null) circleDrill.gameObject.SetActive(false);
+            if (lineDrill      != null) lineDrill.gameObject.SetActive(false);
+            if (shapeDrill     != null) shapeDrill.gameObject.SetActive(false);
+            if (infinityDrill  != null) infinityDrill.gameObject.SetActive(false);
+            if (spiralDrill    != null) spiralDrill.gameObject.SetActive(false);
+            if (zigZagDrill    != null) zigZagDrill.gameObject.SetActive(false);
+            if (waveRiderDrill != null) waveRiderDrill.gameObject.SetActive(false);
         }
+
         private void ResetLive() =>
             CurrentAccuracy = CurrentSmoothness = CurrentSpeedConsistency =
             CurrentTotalScore = CurrentDeviation = AverageScore = 0f;
@@ -280,15 +313,17 @@ namespace StickLab.Core
             if (stages != null && stages.Length > 0) return;
             stages = new[]
             {
-                new TrainingStage { stageName="Circle Warmup",   drillKind=DrillKind.Circle,       center=Vector2.zero, radius=2.4f, thickness=0.36f, tolerance=0.22f, passScore=78f, holdSeconds=2.5f },
+                new TrainingStage { stageName="Circle Warmup",   drillKind=DrillKind.Circle,       center=Vector2.zero, radius=2.4f,  thickness=0.36f, tolerance=0.22f, passScore=78f, holdSeconds=2.5f },
                 new TrainingStage { stageName="Horizontal Line", drillKind=DrillKind.Line,         lineOrientation=LineDrill.LineOrientation.Horizontal, center=Vector2.zero, lineLength=6.2f, thickness=0.28f, tolerance=0.16f, passScore=80f, holdSeconds=2.5f },
                 new TrainingStage { stageName="Vertical Line",   drillKind=DrillKind.Line,         lineOrientation=LineDrill.LineOrientation.Vertical,   center=Vector2.zero, lineLength=6.0f, thickness=0.26f, tolerance=0.15f, passScore=80f, holdSeconds=2.5f },
                 new TrainingStage { stageName="Diagonal Line",   drillKind=DrillKind.Line,         lineOrientation=LineDrill.LineOrientation.DiagonalUp, center=Vector2.zero, lineLength=6.0f, thickness=0.24f, tolerance=0.14f, passScore=82f, holdSeconds=2.5f },
                 new TrainingStage { stageName="Triangle Trace",  drillKind=DrillKind.Shape,        shapeType=ShapeDrill.ShapeType.Triangle, center=Vector2.zero, radius=2.1f, thickness=0.22f, tolerance=0.18f, passScore=82f, holdSeconds=3.0f },
                 new TrainingStage { stageName="Square Trace",    drillKind=DrillKind.Shape,        shapeType=ShapeDrill.ShapeType.Square,   center=Vector2.zero, radius=2.0f, thickness=0.20f, tolerance=0.17f, passScore=84f, holdSeconds=3.0f },
                 new TrainingStage { stageName="Pentagon Trace",  drillKind=DrillKind.Shape,        shapeType=ShapeDrill.ShapeType.Pentagon, center=Vector2.zero, radius=2.0f, thickness=0.18f, tolerance=0.16f, passScore=85f, holdSeconds=3.0f },
-                new TrainingStage { stageName="Infinity Loop",   drillKind=DrillKind.InfinityLoop, center=Vector2.zero, radius=2.2f, thickness=0.24f, tolerance=0.20f, passScore=80f, holdSeconds=3.5f },
-                new TrainingStage { stageName="Spiral In",       drillKind=DrillKind.Spiral,       center=Vector2.zero, radius=2.4f, spiralInnerRadius=0.4f, spiralTurns=2.5f, thickness=0.22f, tolerance=0.18f, passScore=80f, holdSeconds=3.5f },
+                new TrainingStage { stageName="Infinity Loop",   drillKind=DrillKind.InfinityLoop, center=Vector2.zero, radius=2.2f,  thickness=0.24f, tolerance=0.20f, passScore=80f, holdSeconds=3.5f },
+                new TrainingStage { stageName="Spiral In",       drillKind=DrillKind.Spiral,       center=Vector2.zero, radius=2.4f,  spiralInnerRadius=0.4f, spiralTurns=2.5f, thickness=0.22f, tolerance=0.18f, passScore=80f, holdSeconds=3.5f },
+                new TrainingStage { stageName="Zig Zag",         drillKind=DrillKind.ZigZag,       center=Vector2.zero, lineLength=6.0f, zigZagAmplitude=0.8f, zigZagPeaks=4, thickness=0.24f, tolerance=0.18f, passScore=80f, holdSeconds=3.0f },
+                new TrainingStage { stageName="Wave Rider",      drillKind=DrillKind.WaveRider,    center=Vector2.zero, lineLength=6.5f, waveAmplitude=0.75f, waveCount=2,   thickness=0.22f, tolerance=0.17f, passScore=82f, holdSeconds=3.0f },
             };
         }
     }

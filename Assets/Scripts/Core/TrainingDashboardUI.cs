@@ -204,6 +204,10 @@ namespace StickLab.Core
             RefreshBindingLabels();
         }
 
+        // FIX: track last state so fade is triggered only on CHANGE, not every LateUpdate frame
+        private bool lastOverlayVisible = false;
+        private bool overlayListenersWired = false;
+
         private void UpdateOverlay()
         {
             if (overlayPanel == null || overlayTransition == null) return;
@@ -211,18 +215,26 @@ namespace StickLab.Core
             bool show = sessionManager.State == TrainingSessionManager.SessionState.Paused
                      || sessionManager.State == TrainingSessionManager.SessionState.Results;
 
-            // FIX: activate GO before fading in so CanvasGroup is visible
-            if (show) overlayPanel.gameObject.SetActive(true);
-            overlayTransition.FadeIn(show ? 0.25f : 0f);
-            if (!show)
+            // FIX: only call FadeIn/FadeOut when visibility actually changes
+            if (show != lastOverlayVisible)
             {
-                overlayTransition.FadeOut(0.20f);
-                // Deactivate after fade (simple: just let alpha=0 hide it; full deactivation needs coroutine)
+                lastOverlayVisible = show;
+                if (show)
+                {
+                    overlayPanel.gameObject.SetActive(true);
+                    overlayTransition.FadeIn(0.25f);
+                    SetFocusToFirstOverlayButton();
+                    WireOverlayButtons();
+                }
+                else
+                {
+                    overlayTransition.FadeOut(0.20f);
+                    RestoreGameplayFocus();
+                }
             }
 
+            // Always update the summary text while overlay is shown (score changes)
             if (!show) return;
-
-            SetFocusToFirstOverlayButton();
 
             if (overlayTitleText != null)
                 overlayTitleText.text = sessionManager.State == TrainingSessionManager.SessionState.Results
@@ -233,7 +245,11 @@ namespace StickLab.Core
                     : "Session paused. Resume to continue.";
             if (overlaySummaryText != null)
                 overlaySummaryText.text = $"Score {sessionManager.CurrentTotalScore:0.0}  |  Peak {sessionManager.PeakScore:0.0}  |  Avg {sessionManager.AverageScore:0.0}  |  Time {sessionManager.ElapsedSeconds:0.0}s";
+        }
 
+        // FIX: wire button listeners once on show, not every frame
+        private void WireOverlayButtons()
+        {
             if (overlayPrimaryButton != null)
             {
                 overlayPrimaryButton.onClick.RemoveAllListeners();

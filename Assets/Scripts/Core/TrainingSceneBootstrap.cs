@@ -8,144 +8,124 @@ namespace StickLab.Core
     public class TrainingSceneBootstrap : MonoBehaviour
     {
         [Header("Bootstrap")]
-        [SerializeField] private bool  autoCreateScene  = true;
-        [SerializeField] private Color backgroundColor  = new Color(0.06f, 0.07f, 0.09f, 1f);
-
+        [SerializeField] private bool  autoCreateScene = true;
+        [SerializeField] private Color backgroundColor = new Color(0.06f,0.07f,0.09f,1f);
         [Header("Tune")]
-        [SerializeField] private Vector2 playAreaSize = new Vector2(8f, 5f);
-        [SerializeField] private float   cameraZ      = -10f;
+        [SerializeField] private Vector2 playAreaSize = new Vector2(8f,5f);
+        [SerializeField] private float   cameraZ = -10f;
 
         private void Awake()
         {
             if (!autoCreateScene) return;
-
-            // ── Camera ────────────────────────────────────────────────────────
-            Camera cam = EnsureCamera();
-            EnsureLighting();
-
-            // ── Root ──────────────────────────────────────────────────────────
+            EnsureCamera(); EnsureLighting();
             var root = new GameObject("StickLab Systems");
 
-            // ── Create GameObjects ────────────────────────────────────────────
-            var cursorGO        = Child(root, "Cursor");
-            var circlePathGO    = Child(root, "Circle Path");
-            var linePathGO      = Child(root, "Line Path");
-            var shapePathGO     = Child(root, "Shape Path");
-            var infinityPathGO  = Child(root, "Infinity Path");
-            var spiralPathGO    = Child(root, "Spiral Path");
-            var circleDrillGO   = Child(root, "Circle Drill");
-            var lineDrillGO     = Child(root, "Line Drill");
-            var shapeDrillGO    = Child(root, "Shape Drill");
-            var infinityDrillGO = Child(root, "Infinity Drill");
-            var spiralDrillGO   = Child(root, "Spiral Drill");
-            var gameLoopGO      = Child(root, "Game Loop");
-            var sessionGO       = Child(root, "Training Session");
-            var dashboardGO     = Child(root, "Training Dashboard");
-            var heatmapGO       = Child(root, "Heatmap Recorder");
-            var replayGO        = Child(root, "Heatmap Replay");
-            var replayPathGO    = Child(root, "Replay Path");
-            var replayCursorGO  = Child(root, "Replay Cursor");
-            var analyticsGO     = Child(root, "Analytics Dashboard");
+            // GameObjects
+            var cursorGO        = C(root,"Cursor");
+            var gameLoopGO      = C(root,"Game Loop");
+            var sessionGO       = C(root,"Training Session");
+            var dashboardGO     = C(root,"Training Dashboard");
+            var heatmapGO       = C(root,"Heatmap Recorder");
+            var replayGO        = C(root,"Heatmap Replay");
+            var replayPathGO    = C(root,"Replay Path");
+            var replayCursorGO  = C(root,"Replay Cursor");
+            var analyticsGO     = C(root,"Analytics Dashboard");
 
-            // ── Add components ─────────────────────────────────────────────────
-            var inputHandler     = gameLoopGO.AddComponent<InputHandler>();
-            var cursorCtrl       = cursorGO.AddComponent<CursorController>();
-            var cursorIndicator  = cursorGO.AddComponent<CursorIndicator>();
+            // Drill GOs + path GOs
+            var circleGO   = C(root,"Circle Drill");   var circlePathGO   = C(root,"Circle Path");
+            var lineGO     = C(root,"Line Drill");     var linePathGO     = C(root,"Line Path");
+            var shapeGO    = C(root,"Shape Drill");    var shapePathGO    = C(root,"Shape Path");
+            var infGO      = C(root,"Infinity Drill"); var infPathGO      = C(root,"Infinity Path");
+            var spiralGO   = C(root,"Spiral Drill");   var spiralPathGO   = C(root,"Spiral Path");
+            var zigzagGO   = C(root,"ZigZag Drill");   var zigzagPathGO   = C(root,"ZigZag Path");
+            var waveGO     = C(root,"Wave Drill");     var wavePathGO     = C(root,"Wave Path");
 
-            var circleRenderer   = circlePathGO.AddComponent<PathRenderer>();
-            var lineRenderer     = linePathGO.AddComponent<PathRenderer>();
-            var shapeRenderer    = shapePathGO.AddComponent<PathRenderer>();
-            var infinityRenderer = infinityPathGO.AddComponent<PathRenderer>();
-            var spiralRenderer   = spiralPathGO.AddComponent<PathRenderer>();
+            // Components
+            var inputHandler    = gameLoopGO.AddComponent<InputHandler>();
+            var cursorCtrl      = cursorGO.AddComponent<CursorController>();
+            var cursorInd       = cursorGO.AddComponent<CursorIndicator>();
 
-            var circleDrill      = circleDrillGO.AddComponent<CircleDrill>();
-            var lineDrill        = lineDrillGO.AddComponent<LineDrill>();
-            var shapeDrill       = shapeDrillGO.AddComponent<ShapeDrill>();
-            var infinityDrill    = infinityDrillGO.AddComponent<InfinityLoopDrill>();
-            var spiralDrill      = spiralDrillGO.AddComponent<SpiralDrill>();
+            var circleDrill     = circleGO.AddComponent<CircleDrill>();
+            var lineDrill       = lineGO.AddComponent<LineDrill>();
+            var shapeDrill      = shapeGO.AddComponent<ShapeDrill>();
+            var infDrill        = infGO.AddComponent<InfinityLoopDrill>();
+            var spiralDrill     = spiralGO.AddComponent<SpiralDrill>();
+            var zigzagDrill     = zigzagGO.AddComponent<ZigZagDrill>();
+            var waveDrill       = waveGO.AddComponent<WaveRiderDrill>();
 
-            var gameLoop         = gameLoopGO.AddComponent<GameLoop>();
-            var sessionMgr       = sessionGO.AddComponent<TrainingSessionManager>();
-            var dashboard        = dashboardGO.AddComponent<TrainingDashboardUI>();
+            var circleRend      = circlePathGO.AddComponent<PathRenderer>();
+            var lineRend        = linePathGO.AddComponent<PathRenderer>();
+            var shapeRend       = shapePathGO.AddComponent<PathRenderer>();
+            var infRend         = infPathGO.AddComponent<PathRenderer>();
+            var spiralRend      = spiralPathGO.AddComponent<PathRenderer>();
+            var zigzagRend      = zigzagPathGO.AddComponent<PathRenderer>();
+            var waveRend        = wavePathGO.AddComponent<PathRenderer>();
 
-            var heatmapRecorder  = heatmapGO.AddComponent<HeatmapRecorder>();
-            var heatmapReplay    = replayGO.AddComponent<HeatmapReplayController>();
-            var analyticsUI      = analyticsGO.AddComponent<AnalyticsDashboardUI>();
-            var replayPath       = replayPathGO.AddComponent<PathRenderer>();
-            var replayCursor     = replayCursorGO.AddComponent<CursorIndicator>();
+            var gameLoop        = gameLoopGO.AddComponent<GameLoop>();
+            var sessionMgr      = sessionGO.AddComponent<TrainingSessionManager>();
+            var dashboard       = dashboardGO.AddComponent<TrainingDashboardUI>();
+            var heatmapRec      = heatmapGO.AddComponent<HeatmapRecorder>();
+            var heatmapReplay   = replayGO.AddComponent<HeatmapReplayController>();
+            var analyticsUI     = analyticsGO.AddComponent<AnalyticsDashboardUI>();
 
-            // ── Wire path renderers ───────────────────────────────────────────
-            circleDrill.SetPathRenderer(circleRenderer);
-            lineDrill.SetPathRenderer(lineRenderer);
-            shapeDrill.SetPathRenderer(shapeRenderer);
-            infinityDrill.SetPathRenderer(infinityRenderer);
-            spiralDrill.SetPathRenderer(spiralRenderer);
+            // FIX: PathRenderer [RequireComponent(LineRenderer)] - get LineRenderer after AddComponent
+            var replayPathRend  = replayPathGO.AddComponent<PathRenderer>();
+            var replayLineRend  = replayPathGO.GetComponent<LineRenderer>();
+            var replayCursorInd = replayCursorGO.AddComponent<CursorIndicator>();
 
-            // ── Wire session manager ──────────────────────────────────────────
+            // Wire paths
+            circleDrill.SetPathRenderer(circleRend);
+            lineDrill.SetPathRenderer(lineRend);
+            shapeDrill.SetPathRenderer(shapeRend);
+            infDrill.SetPathRenderer(infRend);
+            spiralDrill.SetPathRenderer(spiralRend);
+            zigzagDrill.SetPathRenderer(zigzagRend);
+            waveDrill.SetPathRenderer(waveRend);
+
+            // Wire session
             sessionMgr.SetReferences(circleDrill, lineDrill, shapeDrill, cursorCtrl);
-            sessionMgr.SetExtendedReferences(infinityDrill, spiralDrill);
+            sessionMgr.SetExtendedReferences(infDrill, spiralDrill);
+            sessionMgr.SetExtendedReferences2(zigzagDrill, waveDrill);
 
-            // ── Wire game loop ─────────────────────────────────────────────────
+            // Wire game loop
             gameLoop.SetReferences(inputHandler, cursorCtrl, sessionMgr);
-            gameLoop.SetHeatmapRecorder(heatmapRecorder);
+            gameLoop.SetHeatmapRecorder(heatmapRec);
 
-            // ── Wire dashboard ────────────────────────────────────────────────
+            // Wire dashboard + analytics
             dashboard.SetReferences(inputHandler, cursorCtrl, sessionMgr);
+            analyticsUI.SetReferences(heatmapRec, heatmapReplay);
 
-            // ── Wire analytics ────────────────────────────────────────────────
-            analyticsUI.SetReferences(heatmapRecorder, heatmapReplay);
+            // Play area
+            var rect = new Rect(-playAreaSize.x*.5f,-playAreaSize.y*.5f,playAreaSize.x,playAreaSize.y);
+            cursorCtrl.SetPlayArea(rect);
+            heatmapRec.SetPlayArea(rect);
 
-            // ── Configure play area ────────────────────────────────────────────
-            var playRect = new Rect(-playAreaSize.x * 0.5f, -playAreaSize.y * 0.5f, playAreaSize.x, playAreaSize.y);
-            cursorCtrl.SetPlayArea(playRect);
-            heatmapRecorder.SetPlayArea(playRect);
-
-            // ── Configure replay ──────────────────────────────────────────────
-            heatmapReplay.SetSource(heatmapRecorder);
-            replayPath.SetThickness(0.05f);
-            replayPath.SetColor(new Color(0.57f, 0.42f, 1f, 0.8f));
+            // Replay
+            heatmapReplay.SetSource(heatmapRec);
+            replayPathRend.SetThickness(0.05f);
+            replayPathRend.SetColor(new Color(0.57f,0.42f,1f,0.8f));
             heatmapReplay.SetReplayCursor(replayCursorGO.transform);
-            heatmapReplay.SetReplayPathRenderer(replayPathGO.GetComponent<LineRenderer>());
+            heatmapReplay.SetReplayPathRenderer(replayLineRend);
 
-            // ── Configure cursor visuals ──────────────────────────────────────
-            cursorIndicator.Configure(new Color(0.95f, 0.95f, 1f, 1f), 0.12f, 24);
-            replayCursor.Configure(new Color(1f, 0.86f, 0.25f, 1f), 0.10f, 20);
+            // Visuals
+            cursorInd.Configure(new Color(0.95f,0.95f,1f,1f),0.12f,24);
+            replayCursorInd.Configure(new Color(1f,0.86f,0.25f,1f),0.10f,20);
 
-            // ── All drills start inactive ─────────────────────────────────────
-            circleDrillGO.SetActive(false);
-            lineDrillGO.SetActive(false);
-            shapeDrillGO.SetActive(false);
-            infinityDrillGO.SetActive(false);
-            spiralDrillGO.SetActive(false);
+            // All drills off at start
+            foreach (var go in new[]{circleGO,lineGO,shapeGO,infGO,spiralGO,zigzagGO,waveGO,replayCursorGO})
+                go.SetActive(false);
 
-            // ── Cursor start position ─────────────────────────────────────────
             cursorCtrl.SetPosition(Vector2.zero);
         }
 
-        // ── Helpers ───────────────────────────────────────────────────────────
-        private static GameObject Child(GameObject parent, string name)
-        {
-            var go = new GameObject(name);
-            go.transform.SetParent(parent.transform, false);
-            return go;
-        }
+        static GameObject C(GameObject p,string n){var g=new GameObject(n);g.transform.SetParent(p.transform,false);return g;}
 
-        private Camera EnsureCamera()
-        {
-            var cam = Camera.main;
-            if (cam == null)
-            {
-                var go = new GameObject("Main Camera");
-                cam = go.AddComponent<Camera>();
-                cam.tag = "MainCamera";
-            }
-            cam.orthographic     = true;
-            cam.backgroundColor  = backgroundColor;
-            cam.transform.position = new Vector3(0f, 0f, cameraZ);
-            cam.clearFlags       = CameraClearFlags.SolidColor;
-            return cam;
+        void EnsureCamera(){
+            var cam=Camera.main;
+            if(cam==null){var g=new GameObject("Main Camera");cam=g.AddComponent<Camera>();cam.tag="MainCamera";}
+            cam.orthographic=true; cam.backgroundColor=backgroundColor;
+            cam.transform.position=new Vector3(0,0,cameraZ); cam.clearFlags=CameraClearFlags.SolidColor;
         }
-
-        private static void EnsureLighting() => RenderSettings.ambientLight = Color.white;
+        static void EnsureLighting()=>RenderSettings.ambientLight=Color.white;
     }
 }
