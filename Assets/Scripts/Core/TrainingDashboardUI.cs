@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using StickLab.Drills;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.EventSystems;
@@ -10,770 +9,461 @@ namespace StickLab.Core
 {
     public class TrainingDashboardUI : MonoBehaviour
     {
+        private enum NavPage { Dashboard, Drills, Settings }
         private enum DifficultyPreset { Easy, Normal, Hard }
 
         [Header("References")]
-        [SerializeField] private InputHandler inputHandler;
-        [SerializeField] private CursorController cursorController;
+        [SerializeField] private InputHandler           inputHandler;
+        [SerializeField] private CursorController       cursorController;
         [SerializeField] private TrainingSessionManager sessionManager;
 
-        [Header("Visuals")]
-        [SerializeField] private Color backgroundColor  = new Color(0.05f, 0.06f, 0.09f, 1f);
-        [SerializeField] private Color panelColor       = new Color(0.10f, 0.12f, 0.17f, 0.92f);
-        [SerializeField] private Color panelEdgeColor   = new Color(0.20f, 0.24f, 0.35f, 1f);
-        [SerializeField] private Color accentColor      = new Color(0.57f, 0.42f, 1f, 1f);
-        [SerializeField] private Color textColor        = new Color(0.95f, 0.96f, 1f, 1f);
-        [SerializeField] private Color mutedTextColor   = new Color(0.75f, 0.79f, 0.88f, 1f);
-        [SerializeField] private Font uiFont;
+        [Header("Colors")]
+        [SerializeField] private Color colBg      = new Color(0.05f,0.06f,0.09f,1f);
+        [SerializeField] private Color colPanel   = new Color(0.09f,0.11f,0.15f,1f);
+        [SerializeField] private Color colAccent  = new Color(0.55f,0.40f,1.00f,1f);
+        [SerializeField] private Color colText    = new Color(0.95f,0.96f,1.00f,1f);
+        [SerializeField] private Color colMuted   = new Color(0.60f,0.65f,0.75f,1f);
+        [SerializeField] private Color colSuccess = new Color(0.20f,0.90f,0.50f,1f);
+        [SerializeField] private Font  uiFont;
 
         [Header("Layout")]
         [SerializeField] private bool buildOnAwake = true;
 
-        // ── UI references ────────────────────────────────────────────────────
-        private Canvas canvas;
-        private Text connectionText, profileText, stageTitleText, stageSubtitleText;
-        private Text instructionText, tipText, precisionText, controlsText;
-        private Text scoreGaugeText, rightPanelSummary;
-        private Text accuracyText, smoothnessText, speedText, deviationText;
-        private Image accuracyFill, smoothnessFill, speedFill, deviationFill, scoreGaugeFill;
+        // Runtime state
+        private Canvas   canvas;
+        private NavPage  currentPage = NavPage.Dashboard;
+        private float    currentDeadzone    = 0.18f;
+        private float    currentSensitivity = 8f;
+        private DifficultyPreset currentDiff = DifficultyPreset.Normal;
+        private int      cardOffset = 0;
+        private const int CardsPerPage = 5;
+
+        // UI refs
+        private Text   topConn, topProfile;
+        private readonly Button[] navBtns  = new Button[7];
+        private readonly Image[]  navHi    = new Image[7];
+        private Text   stageName, stageSub, stageInstr, tipText, precLabel;
+        private Button startBtn;
+        private Text   startBtnTxt;
+        private RectTransform cardStrip;
+        private readonly List<RectTransform> cards = new List<RectTransform>();
+        private Text   pageLabel, perfStage;
+        private Image  gaugeFill;
+        private Text   gaugeText;
+        private Text   accTxt,smTxt,spTxt,rkTxt;
+        private Image  accBar,smBar,spBar,rkBar;
         private RectTransform overlayPanel;
-        private Text overlayTitleText, overlayBodyText, overlaySummaryText;
-        private Button overlayPrimaryButton, overlaySecondaryButton;
-        private CanvasGroup overlayCanvasGroup;
-
-        private readonly Dictionary<string, Text> bindingLabels = new Dictionary<string, Text>();
-        private readonly List<Button> stageButtons  = new List<Button>();
-        private readonly List<Button> focusOrder    = new List<Button>();
-
+        private CanvasGroup   overlayGroup;
+        private Text   overlayTitle, overlayBody, overlaySummary;
+        private SmoothFillDisplay   gaugeDisp,accFD,smFD,spFD,rkFD;
+        private SmoothNumberDisplay accND,smND,spND,rkND;
+        private SmoothPanelTransition overlayFade;
+        private bool lastOverlay;
+        private readonly Dictionary<string,Text> bindLabels = new Dictionary<string,Text>();
         private bool isRebinding;
         private InputActionRebindingExtensions.RebindingOperation activeRebind;
+        private readonly List<Button> focusOrder = new List<Button>();
+        private int focusIdx = -1;
+        private float navTimer;
+        private const float NavDelay = 0.16f;
+        private const string DZKey="StickLab.Settings.Deadzone",SensKey="StickLab.Settings.Sensitivity",DiffKey="StickLab.Settings.Difficulty";
 
-        private float currentDeadzone   = 0.18f;
-        private float currentSensitivity = 8f;
-        private DifficultyPreset currentDifficulty = DifficultyPreset.Normal;
-
-        private int   focusedButtonIndex = -1;
-        private float navRepeatTimer;
-        private const float NavRepeatDelay = 0.16f;
-
-        private const string DeadzoneKey    = "StickLab.Settings.Deadzone";
-        private const string SensitivityKey = "StickLab.Settings.Sensitivity";
-        private const string DifficultyKey  = "StickLab.Settings.DifficultyPreset";
-
-        // ── Smooth displays ──────────────────────────────────────────────────
-        private SmoothNumberDisplay scoreDisplay, accuracyDisplay, smoothnessDisplay, speedDisplay, deviationDisplay;
-        private SmoothFillDisplay   scoreGaugeFillDisplay, accuracyFillDisplay, smoothnessFillDisplay, speedFillDisplay, deviationFillDisplay;
-        private SmoothPanelTransition overlayTransition;
-
-        // ── Unity lifecycle ──────────────────────────────────────────────────
         private void Awake()
         {
-            if (uiFont == null) uiFont = Resources.GetBuiltinResource<Font>("Arial.ttf");
+            if (uiFont == null) uiFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             if (buildOnAwake) BuildUi();
         }
-
         private void Start()
         {
-            LoadSettings();
-            LoadBindingOverrides();
-            ApplyDeadzone();
-            ApplySensitivity();
-            ApplyDifficultyProfile();
-            RefreshBindingLabels();
-            EnsureFocusSelection();
-            InitSmoothDisplays();
+            LoadSettings(); ApplyDeadzone(); ApplySensitivity(); ApplyDiff();
+            RefreshBindings(); EnsureFocus(); InitSmooth(); RefreshCards();
         }
-
         private void Update()
         {
-            if (inputHandler == null || sessionManager == null) return;
-            HandleControllerNavigation();
-            if (inputHandler.ConfirmPressedThisFrame)  ActivateFocusedButton();
-            if (inputHandler.RetryPressedThisFrame)    ToggleSessionPauseState();
-            if (Input.GetKeyDown(KeyCode.F1) && canvas != null) canvas.enabled = !canvas.enabled;
+            if (sessionManager==null||inputHandler==null) return;
+            HandleNav();
+            if (inputHandler.ConfirmPressedThisFrame) ActivateFocused();
+            if (inputHandler.RetryPressedThisFrame)   TogglePause();
+            if (Input.GetKeyDown(KeyCode.F1)&&canvas!=null) canvas.enabled=!canvas.enabled;
         }
-
         private void LateUpdate() => RefreshUi();
+        public void SetReferences(InputHandler ih,CursorController cc,TrainingSessionManager sm)
+        { inputHandler=ih; cursorController=cc; sessionManager=sm; }
 
-        // ── Public API ───────────────────────────────────────────────────────
-        public void SetReferences(InputHandler ih, CursorController cc, TrainingSessionManager sm)
+        // ── BUILD ─────────────────────────────────────────────────────────────
+        void BuildUi()
         {
-            inputHandler   = ih;
-            cursorController = cc;
-            sessionManager = sm;
-        }
-
-        // ── Smooth display init ──────────────────────────────────────────────
-        private void InitSmoothDisplays()
-        {
-            // Guard: text refs might be null if BuildUi wasn't called
-            scoreDisplay      = new SmoothNumberDisplay(scoreGaugeText,  "0.0");
-            accuracyDisplay   = new SmoothNumberDisplay(accuracyText,    "0.0");
-            smoothnessDisplay = new SmoothNumberDisplay(smoothnessText,  "0.0");
-            speedDisplay      = new SmoothNumberDisplay(speedText,       "0.0");
-            deviationDisplay  = new SmoothNumberDisplay(deviationText,   "0.0");
-
-            scoreGaugeFillDisplay  = new SmoothFillDisplay(scoreGaugeFill);
-            accuracyFillDisplay    = new SmoothFillDisplay(accuracyFill);
-            smoothnessFillDisplay  = new SmoothFillDisplay(smoothnessFill);
-            speedFillDisplay       = new SmoothFillDisplay(speedFill);
-            deviationFillDisplay   = new SmoothFillDisplay(deviationFill);
-
-            scoreDisplay?.SetValueInstant(0f);
-            scoreGaugeFillDisplay?.SetFillInstant(0f);
-
-            // FIX: guard against null overlayPanel before accessing CanvasGroup
-            if (overlayPanel != null)
-            {
-                overlayCanvasGroup = overlayPanel.GetComponent<CanvasGroup>();
-                if (overlayCanvasGroup == null)
-                    overlayCanvasGroup = overlayPanel.gameObject.AddComponent<CanvasGroup>();
-                overlayTransition = new SmoothPanelTransition(overlayCanvasGroup);
-                overlayTransition.SetAlphaInstant(0f);
-                overlayPanel.gameObject.SetActive(false);
-            }
-        }
-
-        // ── UI refresh ───────────────────────────────────────────────────────
-        private void RefreshUi()
-        {
-            if (sessionManager == null) return;
-
-            // Connection
-            if (connectionText != null)
-            {
-                bool connected = inputHandler != null && inputHandler.ControllerConnected;
-                connectionText.text  = connected ? "Connected" : "Disconnected";
-                connectionText.color = connected ? new Color(0.55f, 1f, 0.65f) : mutedTextColor;
-            }
-            if (profileText != null)
-                profileText.text = inputHandler != null && inputHandler.AimHeld ? "Aimer • ADS Active" : "Aimer • Ready";
-
-            // Stage info
-            if (stageTitleText   != null) stageTitleText.text   = sessionManager.HasStarted ? sessionManager.CurrentStageName : "READY";
-            if (stageSubtitleText!= null) stageSubtitleText.text = sessionManager.GetStageSummary(sessionManager.CurrentStageIndex);
-            if (instructionText  != null) instructionText.text  = sessionManager.GetDrillInstructions();
-            if (precisionText    != null)
-            {
-                bool ads = inputHandler != null && inputHandler.AimHeld;
-                precisionText.text  = ads ? "ADS MODE: ON" : "ADS MODE: OFF";
-                precisionText.color = ads ? accentColor : mutedTextColor;
-            }
-
-            // Right panel summary
-            if (rightPanelSummary != null)
-                rightPanelSummary.text = sessionManager.State == TrainingSessionManager.SessionState.Results
-                    ? $"Completed {sessionManager.CompletedStages} stages\nPeak {sessionManager.PeakScore:0.0}\nAverage {sessionManager.AverageScore:0.0}"
-                    : $"Stage {sessionManager.CurrentStageIndex + 1}/{sessionManager.StageCount}\nTier {sessionManager.DifficultyTier}\nElapsed {sessionManager.ElapsedSeconds:0.0}s";
-
-            // Smooth metric animations
-            float total = sessionManager.CurrentTotalScore;
-            scoreDisplay?.SetValue(total, 0.15f);
-            scoreGaugeFillDisplay?.SetFill(total / 100f, 0.20f);
-            if (scoreGaugeText != null && scoreDisplay != null)
-                scoreGaugeText.text = scoreDisplay.CurrentValue.ToString("0.0");
-
-            accuracyDisplay?.SetValue(sessionManager.CurrentAccuracy, 0.15f);
-            accuracyFillDisplay?.SetFill(sessionManager.CurrentAccuracy / 100f, 0.20f);
-
-            smoothnessDisplay?.SetValue(sessionManager.CurrentSmoothness, 0.15f);
-            smoothnessFillDisplay?.SetFill(sessionManager.CurrentSmoothness / 100f, 0.20f);
-
-            speedDisplay?.SetValue(sessionManager.CurrentSpeedConsistency, 0.15f);
-            speedFillDisplay?.SetFill(sessionManager.CurrentSpeedConsistency / 100f, 0.20f);
-
-            float devFill = 1f - Mathf.Clamp01(sessionManager.CurrentDeviation / 0.5f);
-            deviationDisplay?.SetValue(devFill * 100f, 0.15f);
-            deviationFillDisplay?.SetFill(devFill, 0.20f);
-
-            // Tip
-            if (tipText != null)
-                tipText.text = sessionManager.State switch
-                {
-                    TrainingSessionManager.SessionState.Running => "Focus on smooth movements. Consistency builds precision.",
-                    TrainingSessionManager.SessionState.Paused  => "Session paused. Resume from the overlay or press Retry.",
-                    TrainingSessionManager.SessionState.Results => "Results ready. Restart to run another round.",
-                    _                                           => "Press Start to begin a session, or select a drill card."
-                };
-
-            if (controlsText != null)
-                controlsText.text = sessionManager.ControllerHintText +
-                    (inputHandler != null && inputHandler.FireHeld ? " • RT held" : string.Empty);
-
-            UpdateOverlay();
-            RefreshBindingLabels();
-        }
-
-        // FIX: track last state so fade is triggered only on CHANGE, not every LateUpdate frame
-        private bool lastOverlayVisible = false;
-        private bool overlayListenersWired = false;
-
-        private void UpdateOverlay()
-        {
-            if (overlayPanel == null || overlayTransition == null) return;
-
-            bool show = sessionManager.State == TrainingSessionManager.SessionState.Paused
-                     || sessionManager.State == TrainingSessionManager.SessionState.Results;
-
-            // FIX: only call FadeIn/FadeOut when visibility actually changes
-            if (show != lastOverlayVisible)
-            {
-                lastOverlayVisible = show;
-                if (show)
-                {
-                    overlayPanel.gameObject.SetActive(true);
-                    overlayTransition.FadeIn(0.25f);
-                    SetFocusToFirstOverlayButton();
-                    WireOverlayButtons();
-                }
-                else
-                {
-                    overlayTransition.FadeOut(0.20f);
-                    RestoreGameplayFocus();
-                }
-            }
-
-            // Always update the summary text while overlay is shown (score changes)
-            if (!show) return;
-
-            if (overlayTitleText != null)
-                overlayTitleText.text = sessionManager.State == TrainingSessionManager.SessionState.Results
-                    ? "RESULTS" : "PAUSED";
-            if (overlayBodyText != null)
-                overlayBodyText.text = sessionManager.State == TrainingSessionManager.SessionState.Results
-                    ? "Session complete. Restart when ready."
-                    : "Session paused. Resume to continue.";
-            if (overlaySummaryText != null)
-                overlaySummaryText.text = $"Score {sessionManager.CurrentTotalScore:0.0}  |  Peak {sessionManager.PeakScore:0.0}  |  Avg {sessionManager.AverageScore:0.0}  |  Time {sessionManager.ElapsedSeconds:0.0}s";
-        }
-
-        // FIX: wire button listeners once on show, not every frame
-        private void WireOverlayButtons()
-        {
-            if (overlayPrimaryButton != null)
-            {
-                overlayPrimaryButton.onClick.RemoveAllListeners();
-                overlayPrimaryButton.onClick.AddListener(() =>
-                {
-                    if (sessionManager.State == TrainingSessionManager.SessionState.Results)
-                        sessionManager.RestartSession();
-                    else
-                        sessionManager.ResumeSession();
-                });
-            }
-            if (overlaySecondaryButton != null)
-            {
-                overlaySecondaryButton.onClick.RemoveAllListeners();
-                overlaySecondaryButton.onClick.AddListener(() => sessionManager.RestartSession());
-            }
-        }
-
-        // ── Settings ─────────────────────────────────────────────────────────
-        private void LoadSettings()
-        {
-            currentDeadzone    = PlayerPrefs.GetFloat(DeadzoneKey,    currentDeadzone);
-            currentSensitivity = PlayerPrefs.GetFloat(SensitivityKey, currentSensitivity);
-            currentDifficulty  = (DifficultyPreset)PlayerPrefs.GetInt(DifficultyKey, (int)DifficultyPreset.Normal);
-        }
-
-        private void SaveSettings()
-        {
-            PlayerPrefs.SetFloat(DeadzoneKey,    currentDeadzone);
-            PlayerPrefs.SetFloat(SensitivityKey, currentSensitivity);
-            PlayerPrefs.SetInt(DifficultyKey,    (int)currentDifficulty);
-            PlayerPrefs.Save();
-        }
-
-        private void ApplyDeadzone()    => inputHandler?.SetDeadzone(currentDeadzone);
-        private void ApplySensitivity() => cursorController?.SetSensitivity(currentSensitivity);
-
-        private void ApplyDifficultyProfile()
-        {
-            if (sessionManager == null) return;
-            var (sz, th, tol) = currentDifficulty switch
-            {
-                DifficultyPreset.Easy   => (1f,    1f,    1f),
-                DifficultyPreset.Hard   => (0.92f, 0.84f, 0.80f),
-                _                       => (0.97f, 0.92f, 0.90f),
-            };
-            sessionManager.SetDifficultyProfile(sz, th, tol);
-            SaveSettings();
-        }
-
-        private void SetDifficultyPreset(DifficultyPreset preset)
-        {
-            currentDifficulty = preset;
-            ApplyDifficultyProfile();
-        }
-
-        // ── Rebinding ────────────────────────────────────────────────────────
-        private void RefreshBindingLabels()
-        {
-            if (inputHandler == null) return;
-            foreach (var kv in bindingLabels)
-            {
-                var action = inputHandler.FindAction(kv.Key);
-                kv.Value.text = action != null ? action.GetBindingDisplayString() : "Unbound";
-            }
-        }
-
-        private void LoadBindingOverrides() => inputHandler?.LoadBindingOverrides();
-
-        private void StartRebind(string actionName)
-        {
-            if (inputHandler == null || isRebinding) return;
-            var action = inputHandler.FindAction(actionName);
-            if (action == null) return;
-            isRebinding = true;
-            action.Disable();
-            activeRebind = action.PerformInteractiveRebinding(0)
-                .WithCancelingThrough("<Keyboard>/escape")
-                .WithControlsExcluding("Mouse")
-                .OnCancel(_ => CompleteRebind(action))
-                .OnComplete(_ => CompleteRebind(action));
-            activeRebind.Start();
-        }
-
-        private void CompleteRebind(InputAction action)
-        {
-            activeRebind?.Dispose();
-            activeRebind = null;
-            action.Enable();
-            inputHandler?.SaveBindingOverrides();
-            isRebinding = false;
-            RefreshBindingLabels();
-        }
-
-        private void ResetAllBindings()
-        {
-            var asset = inputHandler?.GetInputActionsAsset();
-            if (asset == null) return;
-            asset.RemoveAllBindingOverrides();
-            PlayerPrefs.DeleteKey(inputHandler.BindingOverridesKey);
-            PlayerPrefs.Save();
-            RefreshBindingLabels();
-        }
-
-        // ── Controller navigation ────────────────────────────────────────────
-        private void HandleControllerNavigation()
-        {
-            if (focusOrder.Count == 0) return;
-
-            Vector2 nav = Vector2.zero;
-            if (Gamepad.current != null)
-            {
-                nav += Gamepad.current.leftStick.ReadValue();
-                nav += Gamepad.current.dpad.ReadValue();
-            }
-            if (Keyboard.current != null)
-            {
-                if (Keyboard.current.upArrowKey.isPressed   || Keyboard.current.wKey.isPressed) nav.y += 1f;
-                if (Keyboard.current.downArrowKey.isPressed || Keyboard.current.sKey.isPressed) nav.y -= 1f;
-                if (Keyboard.current.leftArrowKey.isPressed || Keyboard.current.aKey.isPressed) nav.x -= 1f;
-                if (Keyboard.current.rightArrowKey.isPressed|| Keyboard.current.dKey.isPressed) nav.x += 1f;
-            }
-            if (nav.sqrMagnitude < 0.35f) { navRepeatTimer = 0f; return; }
-            navRepeatTimer -= Time.unscaledDeltaTime;
-            if (navRepeatTimer > 0f) return;
-            int dir = Mathf.Abs(nav.y) >= Mathf.Abs(nav.x) ? (nav.y > 0f ? -1 : 1) : (nav.x > 0f ? 1 : -1);
-            MoveFocus(dir);
-            navRepeatTimer = NavRepeatDelay;
-        }
-
-        private void MoveFocus(int step)
-        {
-            if (focusOrder.Count == 0) return;
-            focusedButtonIndex = Mathf.Clamp(focusedButtonIndex + step, 0, focusOrder.Count - 1);
-            SelectFocusedButton();
-        }
-
-        private void SelectFocusedButton()
-        {
-            if (focusedButtonIndex < 0 || focusedButtonIndex >= focusOrder.Count) return;
-            var btn = focusOrder[focusedButtonIndex];
-            if (btn != null) EventSystem.current?.SetSelectedGameObject(btn.gameObject);
-        }
-
-        private void SetFocusToFirstOverlayButton()
-        {
-            if (overlayPrimaryButton == null) return;
-            int idx = focusOrder.IndexOf(overlayPrimaryButton);
-            if (idx >= 0) focusedButtonIndex = idx;
-            SelectFocusedButton();
-        }
-
-        private void EnsureFocusSelection()
-        {
-            if (focusOrder.Count == 0) return;
-            if (focusedButtonIndex < 0 || focusedButtonIndex >= focusOrder.Count) focusedButtonIndex = 0;
-            SelectFocusedButton();
-        }
-
-        private void RestoreGameplayFocus()
-        {
-            if (focusOrder.Count == 0) return;
-            focusedButtonIndex = Mathf.Clamp(focusedButtonIndex, 0, focusOrder.Count - 1);
-            SelectFocusedButton();
-        }
-
-        private void ActivateFocusedButton()
-        {
-            if (focusedButtonIndex < 0 || focusedButtonIndex >= focusOrder.Count) return;
-            var btn = focusOrder[focusedButtonIndex];
-            if (btn != null && btn.interactable) btn.onClick.Invoke();
-        }
-
-        private void ToggleSessionPauseState()
-        {
-            if (sessionManager == null) return;
-            switch (sessionManager.State)
-            {
-                case TrainingSessionManager.SessionState.Running: sessionManager.PauseSession();   break;
-                case TrainingSessionManager.SessionState.Paused:  sessionManager.ResumeSession();  break;
-                case TrainingSessionManager.SessionState.Results: sessionManager.RestartSession();  break;
-            }
-        }
-
-        private void RegisterFocusable(Button btn) { if (btn != null) focusOrder.Add(btn); }
-
-        // ── UI construction ──────────────────────────────────────────────────
-        private void BuildUi()
-        {
-            EnsureEventSystem();
-
-            var go = new GameObject("Training Canvas");
-            go.transform.SetParent(transform, false);
-            canvas = go.AddComponent<Canvas>();
-            canvas.renderMode   = RenderMode.ScreenSpaceOverlay;
-            canvas.sortingOrder = 100;
+            EnsureES();
+            var go=new GameObject("Dashboard Canvas");
+            go.transform.SetParent(transform,false);
+            canvas=go.AddComponent<Canvas>();
+            canvas.renderMode=RenderMode.ScreenSpaceOverlay; canvas.sortingOrder=100;
             go.AddComponent<GraphicRaycaster>();
-
-            var scaler = go.AddComponent<CanvasScaler>();
-            scaler.uiScaleMode        = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            scaler.referenceResolution = new Vector2(1920f, 1080f);
-            scaler.matchWidthOrHeight  = 0.5f;
-
-            var root = canvas.GetComponent<RectTransform>();
-            CreatePanel(root, "Background", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, backgroundColor);
-            CreateSidebar(root);
-            CreateTopBar(root);
-            CreateCenterPanel(root);
-            CreateRightPanel(root);
-            CreateBottomStrip(root);
-            CreateOverlay(root);
+            var cs=go.AddComponent<CanvasScaler>();
+            cs.uiScaleMode=CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            cs.referenceResolution=new Vector2(1920f,1080f); cs.matchWidthOrHeight=0.5f;
+            var root=canvas.GetComponent<RectTransform>();
+            P(root,"BG",V2(0),V2(1),V2(0),V2(0),colBg).raycastTarget=false;
+            BuildTopBar(root); BuildSidebar(root); BuildCenter(root); BuildRight(root); BuildOverlay(root);
         }
 
-        // ── Sidebar ──────────────────────────────────────────────────────────
-        private void CreateSidebar(RectTransform root)
+        void BuildTopBar(RectTransform r)
         {
-            var sb = CreatePanel(root, "Sidebar", new Vector2(0,0), new Vector2(0.18f,1), new Vector2(24,24), new Vector2(-24,-24), panelColor);
-            AddEdge(sb);
-            CreateLabel(sb,"Title","AIM LAB",30,FontStyle.Bold,new Vector2(0,1),new Vector2(0,1),new Vector2(24,-28),new Vector2(160,38),textColor,TextAnchor.MiddleLeft);
-            CreateLabel(sb,"Subtitle","FOR CONTROLLER",18,FontStyle.Bold,new Vector2(0,1),new Vector2(0,1),new Vector2(24,-62),new Vector2(180,28),accentColor,TextAnchor.MiddleLeft);
+            var bar=R(r,"TopBar",new Vector2(0.16f,0.935f),V2(1),V2(4),-V2(4),new Color(0.07f,0.08f,0.12f,1));
+            topConn   =L(bar,"Conn","● Disconnected",15,FontStyle.Bold,MH(0),MH(0),new Vector2(16,0),new Vector2(220,22),colMuted,TextAnchor.MiddleLeft);
+            topProfile=L(bar,"Prof","Aimer • Ready",14,FontStyle.Normal,MH(1),MH(1),new Vector2(-16,0),new Vector2(220,22),colMuted,TextAnchor.MiddleRight);
+        }
 
-            string[] items={"HOME","DRILLS","CUSTOM","RESULTS","ANALYTICS","LEADERBOARD","SETTINGS"};
-            for(int i=0;i<items.Length;i++) CreateNavItem(sb,items[i],i==0,-135f-(i*58f));
+        void BuildSidebar(RectTransform r)
+        {
+            var sb=R(r,"Sidebar",V2(0),new Vector2(0.16f,1),new Vector2(8,8),new Vector2(-4,-8),colPanel);
+            L(sb,"Logo","STICK LAB",22,FontStyle.Bold,new Vector2(0,1),new Vector2(1,1),new Vector2(14,-26),new Vector2(-14,28),colText,TextAnchor.MiddleLeft);
+            L(sb,"Sub","CONTROLLER TRAINING",10,FontStyle.Normal,new Vector2(0,1),new Vector2(1,1),new Vector2(14,-52),new Vector2(-14,16),colAccent,TextAnchor.MiddleLeft);
+
+            string[] lbls={"⌂  Dashboard","⊕  Drills","✎  Training Plan","▤  Stats","◷  History","♛  Leaderboards","⚙  Settings"};
+            NavPage[] pgs={NavPage.Dashboard,NavPage.Drills,NavPage.Drills,NavPage.Dashboard,NavPage.Dashboard,NavPage.Dashboard,NavPage.Settings};
+            for(int i=0;i<lbls.Length;i++)
+            {
+                int ci=i; NavPage cp=pgs[i]; float y=-80f-i*48f;
+                var item=R(sb,"Nav"+i,new Vector2(0,1),new Vector2(1,1),new Vector2(6,y-18),new Vector2(-6,y+20),new Color(0,0,0,0));
+                navHi[i]=item.GetComponent<Image>();
+                var btn=item.gameObject.AddComponent<Button>();
+                btn.transition=Selectable.Transition.ColorTint; btn.colors=NavColors();
+                btn.onClick.AddListener(()=>SwitchPage(cp));
+                navBtns[i]=btn; focusOrder.Add(btn);
+                L(item,"T",lbls[i],13,FontStyle.Normal,V2(0),V2(1),new Vector2(14,2),new Vector2(-8,-2),colMuted,TextAnchor.MiddleLeft);
+            }
 
             // Controller card
-            var cc = CreatePanel(sb,"ControllerCard",new Vector2(0,0),new Vector2(1,0),new Vector2(16,16),new Vector2(-16,155),new Color(0.08f,0.10f,0.14f,1));
-            AddEdge(cc);
-            CreateLabel(cc,"Header","CONTROLLER",18,FontStyle.Bold,new Vector2(0,1),new Vector2(0,1),new Vector2(16,-16),new Vector2(140,26),textColor,TextAnchor.MiddleLeft);
-            connectionText = CreateLabel(cc,"Conn","Disconnected",16,FontStyle.Normal,new Vector2(0,1),new Vector2(0,1),new Vector2(16,-54),new Vector2(160,24),mutedTextColor,TextAnchor.MiddleLeft);
-            CreateLabel(cc,"Hint","LT = ADS • RT = Fire",14,FontStyle.Normal,new Vector2(0,1),new Vector2(0,1),new Vector2(16,-82),new Vector2(190,24),mutedTextColor,TextAnchor.MiddleLeft);
-
-            // Quick settings
-            var qs = CreatePanel(sb,"QuickSettings",new Vector2(0,0),new Vector2(1,0),new Vector2(16,16),new Vector2(-16,18),new Color(0.08f,0.10f,0.14f,1));
-            AddEdge(qs);
-            CreateLabel(qs,"Header","QUICK SETTINGS",18,FontStyle.Bold,new Vector2(0,1),new Vector2(0,1),new Vector2(16,-16),new Vector2(180,24),textColor,TextAnchor.MiddleLeft);
-            BuildDeadzoneRow(qs, new Vector2(16,-54));
-            BuildSensitivityRow(qs, new Vector2(16,-96));
-            BuildDifficultyButtons(qs, new Vector2(16,-138));
+            var cc=R(sb,"CC",new Vector2(0,0),new Vector2(1,0),new Vector2(8,136),new Vector2(-8,8),new Color(0.06f,0.07f,0.10f,1));
+            L(cc,"H","CONTROLLER",11,FontStyle.Bold,new Vector2(0,1),new Vector2(1,1),new Vector2(10,-10),new Vector2(-10,16),colText,TextAnchor.MiddleLeft);
+            L(cc,"S","Disconnected",11,FontStyle.Normal,new Vector2(0,1),new Vector2(1,1),new Vector2(10,-28),new Vector2(-10,16),colMuted,TextAnchor.MiddleLeft);
+            L(cc,"H2","LT=ADS  RT=Fire",10,FontStyle.Normal,new Vector2(0,1),new Vector2(1,1),new Vector2(10,-46),new Vector2(-10,14),colMuted,TextAnchor.MiddleLeft);
+            L(cc,"H3","QUICK SETTINGS",11,FontStyle.Bold,new Vector2(0,1),new Vector2(1,1),new Vector2(10,-66),new Vector2(-10,16),colText,TextAnchor.MiddleLeft);
+            DZRow(cc,-88f); SensRow(cc,-110f);
         }
 
-        private void CreateNavItem(RectTransform p, string label, bool sel, float y)
+        void BuildCenter(RectTransform r)
         {
-            var item = CreatePanel(p,label,new Vector2(0,1),new Vector2(1,1),new Vector2(16,y-24),new Vector2(-16,y+18),
-                sel?new Color(0.23f,0.20f,0.38f,1):new Color(0,0,0,.08f));
-            AddEdge(item, sel?accentColor:panelEdgeColor);
-            CreateLabel(item,"Text",label,16,FontStyle.Bold,new Vector2(0,.5f),new Vector2(0,.5f),new Vector2(18,0),new Vector2(180,24),sel?textColor:mutedTextColor,TextAnchor.MiddleLeft);
+            var ctr=R(r,"Center",new Vector2(0.16f,0.07f),new Vector2(0.78f,0.935f),new Vector2(6,6),new Vector2(-6,-4),colPanel);
+
+            stageName =L(ctr,"SN","READY",26,FontStyle.Bold,new Vector2(0,1),new Vector2(1,1),new Vector2(18,-28),new Vector2(-18,32),colText,TextAnchor.MiddleLeft);
+            stageSub  =L(ctr,"SS","Press Enter to begin",13,FontStyle.Normal,new Vector2(0,1),new Vector2(1,1),new Vector2(18,-62),new Vector2(-18,22),colMuted,TextAnchor.MiddleLeft);
+            stageInstr=L(ctr,"SI","",14,FontStyle.Normal,new Vector2(0,1),new Vector2(1,1),new Vector2(18,-84),new Vector2(-18,22),colText,TextAnchor.MiddleLeft);
+            precLabel =L(ctr,"ADS","ADS: OFF",13,FontStyle.Bold,new Vector2(1,1),new Vector2(1,1),new Vector2(-18,-28),new Vector2(110,22),colMuted,TextAnchor.MiddleRight);
+
+            // Large preview area
+            var prev=R(ctr,"Prev",new Vector2(0,1),new Vector2(1,1),new Vector2(14,-108),new Vector2(-14,-350),new Color(0.04f,0.05f,0.08f,1));
+            prev.GetComponent<Image>().raycastTarget=false;
+            L(prev,"PH","● DRILL PREVIEW  —  Paths render here during session",11,FontStyle.Normal,new Vector2(0,1),new Vector2(1,1),new Vector2(12,-12),new Vector2(-12,18),colMuted,TextAnchor.MiddleLeft);
+            L(prev,"PH2","Move cursor with  WASD / Right Stick  after pressing START",13,FontStyle.Normal,new Vector2(0.5f,0.5f),new Vector2(0.5f,0.5f),new Vector2(-260,-10),new Vector2(520,20),colMuted,TextAnchor.MiddleCenter);
+            L(prev,"PH3","The drill path (circle / line / shape) will appear here in the Game viewport",11,FontStyle.Normal,new Vector2(0.5f,0.5f),new Vector2(0.5f,0.5f),new Vector2(-260,14),new Vector2(520,18),new Color(0.40f,0.35f,0.60f,1f),TextAnchor.MiddleCenter);
+
+            // Action buttons
+            var br=R(ctr,"Btns",new Vector2(0,1),new Vector2(1,1),new Vector2(14,-366),new Vector2(-14,-314),new Color(0,0,0,0));
+            br.GetComponent<Image>().raycastTarget=false;
+            startBtn=MkBtn(br,"Start","▶  START SESSION",new Vector2(0,0),new Vector2(0.32f,1),colAccent,()=>{ sessionManager?.BeginSession(); RefreshCards(); });
+            startBtnTxt=startBtn.GetComponentInChildren<Text>();
+            MkBtn(br,"Stop","■  STOP",new Vector2(0.34f,0),new Vector2(0.56f,1),new Color(0.18f,0.08f,0.08f,1),()=>sessionManager?.StopSession());
+            MkBtn(br,"Reset","↺  Reset Bindings",new Vector2(0.58f,0),new Vector2(1f,1),new Color(0.10f,0.12f,0.17f,1),ResetAllBindings);
+
+            // Tip
+            var tip=R(ctr,"Tip",new Vector2(0,1),new Vector2(1,1),new Vector2(14,-374),new Vector2(-14,-342),new Color(0.06f,0.07f,0.10f,1));
+            tip.GetComponent<Image>().raycastTarget=false;
+            L(tip,"Tag","TIP",10,FontStyle.Bold,new Vector2(0,.5f),new Vector2(0,.5f),new Vector2(8,0),new Vector2(28,14),colAccent,TextAnchor.MiddleLeft);
+            tipText=L(tip,"T","Smooth and steady. Consistency builds precision.",12,FontStyle.Normal,new Vector2(0,.5f),new Vector2(1,.5f),new Vector2(42,0),new Vector2(-50,14),colMuted,TextAnchor.MiddleLeft);
+
+            // Category header
+            L(ctr,"CatH","DRILL CATEGORIES",10,FontStyle.Bold,new Vector2(0,1),new Vector2(1,1),new Vector2(14,-352),new Vector2(-14,16),colMuted,TextAnchor.MiddleLeft);
+
+            // Card strip + pagination
+            cardStrip=R(ctr,"Strip",new Vector2(0,0),new Vector2(1,0),new Vector2(54,52),new Vector2(-54,190),new Color(0,0,0,0));
+            cardStrip.GetComponent<Image>().raycastTarget=false;
+
+            MkBtn(ctr,"Prev","◀",new Vector2(0,0),new Vector2(0,0),new Color(0.12f,0.14f,0.20f,1),
+                ()=>{ cardOffset=Mathf.Max(0,cardOffset-CardsPerPage); RefreshCards(); },
+                new Vector2(14,52),new Vector2(50,190));
+            MkBtn(ctr,"Next","▶",new Vector2(1,0),new Vector2(1,0),new Color(0.12f,0.14f,0.20f,1),
+                ()=>{ if(sessionManager!=null) cardOffset=Mathf.Min(Mathf.Max(0,sessionManager.StageCount-CardsPerPage),cardOffset+CardsPerPage); RefreshCards(); },
+                new Vector2(-50,52),new Vector2(-14,190));
+
+            pageLabel=L(ctr,"PgLbl","",10,FontStyle.Normal,new Vector2(0.5f,0),new Vector2(0.5f,0),new Vector2(-60,12),new Vector2(120,16),colMuted,TextAnchor.MiddleCenter);
         }
 
-        // ── Top bar ──────────────────────────────────────────────────────────
-        private void CreateTopBar(RectTransform root)
+        void BuildRight(RectTransform r)
         {
-            var top = CreatePanel(root,"TopBar",new Vector2(0.18f,0.92f),new Vector2(1,1),new Vector2(24,16),new Vector2(-24,-16),new Color(0.08f,0.10f,0.14f,.92f));
-            AddEdge(top);
-            connectionText = CreateLabel(top,"TopConn","Disconnected",16,FontStyle.Bold,new Vector2(0,.5f),new Vector2(0,.5f),new Vector2(24,0),new Vector2(240,24),textColor,TextAnchor.MiddleLeft);
-            profileText    = CreateLabel(top,"Profile","Aimer • Ready",16,FontStyle.Normal,new Vector2(1,.5f),new Vector2(1,.5f),new Vector2(-24,0),new Vector2(220,24),mutedTextColor,TextAnchor.MiddleRight);
+            var rp=R(r,"Right",new Vector2(0.78f,0.07f),V2(1),new Vector2(4,6),new Vector2(-8,-4),colPanel);
+            L(rp,"H","SESSION STATS",12,FontStyle.Bold,new Vector2(0,1),new Vector2(1,1),new Vector2(12,-18),new Vector2(-12,18),colText,TextAnchor.MiddleLeft);
+
+            // ── Compact gauge: fixed pixel height so it never pushes metrics off ──
+            // Gauge container: 120px tall, centred horizontally
+            var ga=R(rp,"Gauge",new Vector2(0.5f,1),new Vector2(0.5f,1),new Vector2(-60,-148),new Vector2(60,-28),new Color(0.07f,0.08f,0.12f,1));
+            ga.GetComponent<Image>().raycastTarget=false;
+            // Radial fill ring
+            var fg=new GameObject("GF",typeof(RectTransform)); fg.transform.SetParent(ga,false);
+            var frt=fg.GetComponent<RectTransform>();
+            frt.anchorMin=V2(0.05f); frt.anchorMax=V2(0.95f); frt.offsetMin=frt.offsetMax=V2(0);
+            gaugeFill=fg.AddComponent<Image>(); gaugeFill.color=colAccent;
+            gaugeFill.type=Image.Type.Filled; gaugeFill.fillMethod=Image.FillMethod.Radial360;
+            gaugeFill.fillOrigin=2; gaugeFill.fillClockwise=true;
+            gaugeFill.fillAmount=0f; gaugeFill.raycastTarget=false;
+            // Inner dark circle
+            var ig=new GameObject("GI",typeof(RectTransform)); ig.transform.SetParent(ga,false);
+            var irt=ig.GetComponent<RectTransform>();
+            irt.anchorMin=V2(0.18f); irt.anchorMax=V2(0.82f); irt.offsetMin=irt.offsetMax=V2(0);
+            ig.AddComponent<Image>().color=colPanel;
+            // Score number centred inside
+            gaugeText=L(ga,"GN","0.0",26,FontStyle.Bold,
+                new Vector2(0.5f,0.5f),new Vector2(0.5f,0.5f),
+                new Vector2(-36,-14),new Vector2(72,30),colText,TextAnchor.MiddleCenter);
+            L(ga,"GL","OVERALL SCORE",8,FontStyle.Normal,
+                new Vector2(0.5f,0.5f),new Vector2(0.5f,0.5f),
+                new Vector2(-50,-30),new Vector2(100,14),colMuted,TextAnchor.MiddleCenter);
+
+            // Compact stat rows to the right of gauge
+            string[] statNames={"Accuracy","Consistency","Smoothness","Speed"};
+            for(int si=0;si<statNames.Length;si++){
+                float sy=-42f-si*20f;
+                L(rp,statNames[si]+"SL",statNames[si],10,FontStyle.Normal,
+                    new Vector2(0.5f,1),new Vector2(0.85f,1),new Vector2(4,sy),new Vector2(-4,sy+18),colMuted,TextAnchor.MiddleLeft);
+                L(rp,statNames[si]+"SV","—",10,FontStyle.Bold,
+                    new Vector2(0.85f,1),new Vector2(1,1),new Vector2(0,sy),new Vector2(-12,sy+18),colSuccess,TextAnchor.MiddleRight);
+            }
+
+            // Stage info — one line, tight
+            perfStage=L(rp,"PI","Stage 1/1 • Tier 0 • 0.0s",10,FontStyle.Normal,
+                new Vector2(0,1),new Vector2(1,1),new Vector2(12,-156),new Vector2(-12,16),colMuted,TextAnchor.MiddleCenter);
+
+            // ── Metric bars — each 32px tall, explicit pixel offsets ──
+            float y=-180f;
+            accTxt=MetricBar(rp,"ACCURACY",  y,out accBar); y-=34f;
+            smTxt =MetricBar(rp,"SMOOTHNESS",y,out smBar);  y-=34f;
+            spTxt =MetricBar(rp,"SPEED",     y,out spBar);  y-=34f;
+            rkTxt =MetricBar(rp,"REACTION",  y,out rkBar);
+
+            // Divider
+            var dv=R(rp,"Dv",new Vector2(0,1),new Vector2(1,1),new Vector2(12,-320),new Vector2(-12,-317),new Color(0.18f,0.20f,0.28f,1));
+            dv.GetComponent<Image>().raycastTarget=false;
+
+            L(rp,"BH","BINDINGS",11,FontStyle.Bold,new Vector2(0,1),new Vector2(1,1),new Vector2(12,-328),new Vector2(-12,16),colText,TextAnchor.MiddleLeft);
+            float by=-350f;
+            BindRow(rp,"RightStick","Right Stick",by); by-=30f;
+            BindRow(rp,"Aim",       "ADS / LT",  by);  by-=30f;
+            BindRow(rp,"Fire",      "Fire / RT",  by);  by-=30f;
+            BindRow(rp,"Confirm",   "Start",     by);   by-=30f;
+            BindRow(rp,"Cancel",    "Retry",     by);
         }
 
-        // ── Center panel ─────────────────────────────────────────────────────
-        private void CreateCenterPanel(RectTransform root)
+        void BuildOverlay(RectTransform r)
         {
-            var ctr = CreatePanel(root,"Center",new Vector2(0.20f,0.23f),new Vector2(0.75f,0.90f),Vector2.zero,Vector2.zero,panelColor);
-            AddEdge(ctr);
-            stageTitleText    = CreateLabel(ctr,"StageTitle","CIRCLE TRACKING",26,FontStyle.Bold,new Vector2(0,1),new Vector2(0,1),new Vector2(28,-28),new Vector2(420,32),textColor,TextAnchor.MiddleLeft);
-            stageSubtitleText = CreateLabel(ctr,"StageSub","Press Start to begin",16,FontStyle.Normal,new Vector2(0,1),new Vector2(0,1),new Vector2(28,-62),new Vector2(400,24),mutedTextColor,TextAnchor.MiddleLeft);
-            instructionText   = CreateLabel(ctr,"Instruction","Trace the circle smoothly.",18,FontStyle.Normal,new Vector2(0,1),new Vector2(0,1),new Vector2(28,-98),new Vector2(520,24),textColor,TextAnchor.MiddleLeft);
-            precisionText     = CreateLabel(ctr,"Precision","ADS mode: OFF",16,FontStyle.Bold,new Vector2(1,1),new Vector2(1,1),new Vector2(-28,-28),new Vector2(180,24),accentColor,TextAnchor.MiddleRight);
-
-            var row = CreateRow(ctr, new Vector2(28,-138), 620, 44);
-            CreateActionButton(row,"Start","START / RESTART",()=>sessionManager?.BeginSession());
-            CreateActionButton(row,"Stop","STOP / RETRY",()=>sessionManager?.StopSession());
-            CreateActionButton(row,"Reset","RESET BINDINGS",ResetAllBindings);
-
-            tipText = CreateLabel(ctr,"Tip","Focus on smooth movements. Consistency builds precision.",16,FontStyle.Italic,new Vector2(0,0),new Vector2(0,0),new Vector2(28,24),new Vector2(760,28),mutedTextColor,TextAnchor.MiddleLeft);
-
-            stageButtons.Clear();
-            var strip = CreateRow(ctr, new Vector2(28,64), 760, 110);
-            stageButtons.Add(CreateStageCard(strip,"CIRCLE TRACKING","Track circles with accuracy",0));
-            stageButtons.Add(CreateStageCard(strip,"LINE CONTROL","Constant speed on lines",1));
-            stageButtons.Add(CreateStageCard(strip,"SHAPE TRACE","Trace complex shapes",4));
-        }
-
-        // ── Right panel ──────────────────────────────────────────────────────
-        private void CreateRightPanel(RectTransform root)
-        {
-            var rp = CreatePanel(root,"Right",new Vector2(0.76f,0.23f),new Vector2(1,0.90f),Vector2.zero,new Vector2(-24,0),panelColor);
-            AddEdge(rp);
-            CreateLabel(rp,"PerfTitle","PERFORMANCE",22,FontStyle.Bold,new Vector2(0,1),new Vector2(0,1),new Vector2(22,-22),new Vector2(220,28),textColor,TextAnchor.MiddleLeft);
-
-            // Radial gauge
-            var gauge = CreatePanel(rp,"Gauge",new Vector2(.5f,1),new Vector2(.5f,1),new Vector2(-80,-286),new Vector2(80,-126),new Color(0.07f,0.08f,0.12f,1));
-            AddEdge(gauge);
-            var gaugeBg   = CreateFilledImage(gauge,"GaugeBg",  new Color(0.18f,0.20f,0.28f,1), Image.FillMethod.Radial360);
-            gaugeBg.fillAmount=1f; gaugeBg.fillOrigin=2; gaugeBg.fillClockwise=true;
-            scoreGaugeFill= CreateFilledImage(gauge,"GaugeFill",accentColor,Image.FillMethod.Radial360);
-            scoreGaugeFill.fillOrigin=2; scoreGaugeFill.fillClockwise=true; scoreGaugeFill.fillAmount=0f;
-            var inner = CreatePanel(gauge,"Inner",new Vector2(.5f,.5f),new Vector2(.5f,.5f),new Vector2(-58,-58),new Vector2(58,58),new Color(0.06f,0.07f,0.10f,.98f));
-            AddEdge(inner,new Color(0.3f,0.32f,0.45f,.4f));
-            scoreGaugeText = CreateLabel(inner,"Score","0.0",40,FontStyle.Bold,new Vector2(.5f,.5f),new Vector2(.5f,.5f),Vector2.zero,new Vector2(120,44),textColor,TextAnchor.MiddleCenter);
-            CreateLabel(inner,"Lbl","SCORE",14,FontStyle.Normal,new Vector2(.5f,.5f),new Vector2(.5f,.5f),new Vector2(0,-38),new Vector2(100,20),mutedTextColor,TextAnchor.MiddleCenter);
-            rightPanelSummary = CreateLabel(rp,"Summary","Stage 1/1\nTier 0",14,FontStyle.Normal,new Vector2(.5f,1),new Vector2(.5f,1),new Vector2(-90,-124),new Vector2(180,66),mutedTextColor,TextAnchor.MiddleCenter);
-
-            accuracyText  = CreateMetricRow(rp,"ACCURACY",  0, new Vector2(22,-174), out accuracyFill);
-            smoothnessText= CreateMetricRow(rp,"SMOOTHNESS",0, new Vector2(22,-234), out smoothnessFill);
-            speedText     = CreateMetricRow(rp,"SPEED",     0, new Vector2(22,-294), out speedFill);
-            deviationText = CreateMetricRow(rp,"REACTION",  0, new Vector2(22,-354), out deviationFill);
-
-            CreateLabel(rp,"BindHdr","CUSTOM INPUTS",18,FontStyle.Bold,new Vector2(0,0),new Vector2(0,0),new Vector2(22,148),new Vector2(180,24),textColor,TextAnchor.MiddleLeft);
-            CreateRebindRow(rp,"RightStick","Right Stick",22,118);
-            CreateRebindRow(rp,"Aim",       "ADS / LT",  22, 76);
-            CreateRebindRow(rp,"Fire",      "Fire / RT",  22, 34);
-            CreateRebindRow(rp,"Confirm",   "Start/Submit",22,-8);
-            CreateRebindRow(rp,"Cancel",    "Retry/Cancel",22,-50);
-        }
-
-        // ── Bottom strip ─────────────────────────────────────────────────────
-        private void CreateBottomStrip(RectTransform root)
-        {
-            var bot = CreatePanel(root,"Bottom",new Vector2(0.18f,0),new Vector2(1,0.19f),new Vector2(24,24),new Vector2(-24,24),new Color(0.08f,0.10f,0.14f,.92f));
-            AddEdge(bot);
-            controlsText = CreateLabel(bot,"Controls","Press Start to begin. Hold LT for precision mode.",16,FontStyle.Normal,new Vector2(0,1),new Vector2(0,1),new Vector2(22,-20),new Vector2(820,24),mutedTextColor,TextAnchor.MiddleLeft);
-        }
-
-        // ── Overlay ──────────────────────────────────────────────────────────
-        private void CreateOverlay(RectTransform root)
-        {
-            overlayPanel = CreatePanel(root,"Overlay",new Vector2(0.28f,0.28f),new Vector2(0.72f,0.72f),Vector2.zero,Vector2.zero,new Color(0.04f,0.05f,0.07f,.95f));
-            AddEdge(overlayPanel,accentColor);
+            overlayPanel=R(r,"Overlay",new Vector2(0.25f,0.25f),new Vector2(0.75f,0.75f),V2(0),V2(0),new Color(0.04f,0.05f,0.08f,0.97f));
+            overlayGroup=overlayPanel.gameObject.AddComponent<CanvasGroup>();
+            overlayGroup.alpha=0f; overlayGroup.interactable=false; overlayGroup.blocksRaycasts=false;
             overlayPanel.gameObject.SetActive(false);
-
-            var content = CreatePanel(overlayPanel,"Content",Vector2.zero,Vector2.one,new Vector2(30,30),new Vector2(-30,-30),new Color(0,0,0,0));
-            overlayTitleText   = CreateLabel(content,"Title","PAUSED",34,FontStyle.Bold,new Vector2(0,1),new Vector2(1,1),new Vector2(0,-8),new Vector2(0,40),textColor,TextAnchor.MiddleCenter);
-            overlayBodyText    = CreateLabel(content,"Body","Session paused.",18,FontStyle.Normal,new Vector2(0,1),new Vector2(1,1),new Vector2(0,-58),new Vector2(0,26),mutedTextColor,TextAnchor.MiddleCenter);
-            overlaySummaryText = CreateLabel(content,"Summary","Score 0  |  Peak 0  |  Avg 0  |  Time 0s",16,FontStyle.Bold,new Vector2(0,1),new Vector2(1,1),new Vector2(0,-100),new Vector2(0,24),textColor,TextAnchor.MiddleCenter);
-
-            var btns = CreateRow(content, new Vector2(0,-150), 420, 44);
-            overlayPrimaryButton   = CreateOverlayButton(btns,"Primary",  "RESUME",  new Vector2(0,0),   new Vector2(200,44),null);
-            overlaySecondaryButton = CreateOverlayButton(btns,"Secondary","RESTART", new Vector2(220,0), new Vector2(200,44),null);
+            var inn=R(overlayPanel,"Inn",V2(0),V2(1),new Vector2(28,28),new Vector2(-28,-28),new Color(0,0,0,0));
+            inn.GetComponent<Image>().raycastTarget=false;
+            overlayTitle  =L(inn,"T","PAUSED",34,FontStyle.Bold,new Vector2(0,1),new Vector2(1,1),new Vector2(0,-10),new Vector2(0,42),colText,TextAnchor.MiddleCenter);
+            overlayBody   =L(inn,"B","",16,FontStyle.Normal,new Vector2(0,1),new Vector2(1,1),new Vector2(0,-60),new Vector2(0,26),colMuted,TextAnchor.MiddleCenter);
+            overlaySummary=L(inn,"S","",13,FontStyle.Bold,new Vector2(0,1),new Vector2(1,1),new Vector2(0,-98),new Vector2(0,22),colText,TextAnchor.MiddleCenter);
+            var brow=R(inn,"BR",new Vector2(0,1),new Vector2(1,1),new Vector2(0,-156),new Vector2(0,-108),new Color(0,0,0,0));
+            brow.GetComponent<Image>().raycastTarget=false;
+            MkBtn(brow,"Res","RESUME",  new Vector2(0,0),new Vector2(0.47f,1),colAccent,()=>{ sessionManager?.ResumeSession(); });
+            MkBtn(brow,"Rst","RESTART", new Vector2(0.53f,0),V2(1),new Color(0.15f,0.12f,0.25f,1),()=>{ sessionManager?.RestartSession(); });
         }
 
-        // ── Widget builders ──────────────────────────────────────────────────
-        // FIX: single definition of BuildDeadzoneRow / BuildSensitivityRow (removed duplicates)
-        private void BuildDeadzoneRow(RectTransform parent, Vector2 pos)
+        // ── WIDGET BUILDERS ───────────────────────────────────────────────────
+        void DZRow(RectTransform p,float y)
         {
-            var row = CreatePanel(parent,"DZRow",new Vector2(0,1),new Vector2(1,1),new Vector2(pos.x,pos.y-8),new Vector2(-16,pos.y+28),new Color(0,0,0,0));
-            CreateLabel(row,"Lbl","Deadzone",12,FontStyle.Bold,new Vector2(0,.5f),new Vector2(0,.5f),new Vector2(0,0),new Vector2(80,18),mutedTextColor,TextAnchor.MiddleLeft);
-            var val = CreateLabel(row,"Val",currentDeadzone.ToString("0.00"),12,FontStyle.Bold,new Vector2(.5f,.5f),new Vector2(.5f,.5f),new Vector2(-10,0),new Vector2(70,18),textColor,TextAnchor.MiddleCenter);
-            MakeAdjustButton(row,"DZDec",new Vector2(-74,-12),new Vector2(-50,12),"-",()=>{
-                currentDeadzone=Mathf.Clamp(currentDeadzone-0.02f,0f,0.5f); ApplyDeadzone(); val.text=currentDeadzone.ToString("0.00"); SaveSettings();
-            });
-            MakeAdjustButton(row,"DZInc",new Vector2(-44,-12),new Vector2(-20,12),"+",()=>{
-                currentDeadzone=Mathf.Clamp(currentDeadzone+0.02f,0f,0.5f); ApplyDeadzone(); val.text=currentDeadzone.ToString("0.00"); SaveSettings();
-            });
+            L(p,"DL","Deadzone",10,FontStyle.Normal,new Vector2(0,1),new Vector2(0,1),new Vector2(10,y),new Vector2(70,14),colMuted,TextAnchor.MiddleLeft);
+            var v=L(p,"DV",currentDeadzone.ToString("0.00"),10,FontStyle.Bold,new Vector2(0.5f,1),new Vector2(0.5f,1),new Vector2(-18,y),new Vector2(36,14),colText,TextAnchor.MiddleCenter);
+            Mini(p,"DD","-",new Vector2(1,1),new Vector2(1,1),new Vector2(-50,y-1),new Vector2(-30,y+13),()=>{ currentDeadzone=Mathf.Clamp(currentDeadzone-0.02f,0f,0.5f);ApplyDeadzone();v.text=currentDeadzone.ToString("0.00");SaveSettings(); });
+            Mini(p,"DI","+",new Vector2(1,1),new Vector2(1,1),new Vector2(-26,y-1),new Vector2(-6,y+13), ()=>{ currentDeadzone=Mathf.Clamp(currentDeadzone+0.02f,0f,0.5f);ApplyDeadzone();v.text=currentDeadzone.ToString("0.00");SaveSettings(); });
+        }
+        void SensRow(RectTransform p,float y)
+        {
+            L(p,"SL","Sensitivity",10,FontStyle.Normal,new Vector2(0,1),new Vector2(0,1),new Vector2(10,y),new Vector2(70,14),colMuted,TextAnchor.MiddleLeft);
+            var v=L(p,"SV",currentSensitivity.ToString("0.0"),10,FontStyle.Bold,new Vector2(0.5f,1),new Vector2(0.5f,1),new Vector2(-18,y),new Vector2(36,14),colText,TextAnchor.MiddleCenter);
+            Mini(p,"SD","-",new Vector2(1,1),new Vector2(1,1),new Vector2(-50,y-1),new Vector2(-30,y+13),()=>{ currentSensitivity=Mathf.Clamp(currentSensitivity-0.5f,2f,16f);ApplySensitivity();v.text=currentSensitivity.ToString("0.0");SaveSettings(); });
+            Mini(p,"SI","+",new Vector2(1,1),new Vector2(1,1),new Vector2(-26,y-1),new Vector2(-6,y+13), ()=>{ currentSensitivity=Mathf.Clamp(currentSensitivity+0.5f,2f,16f);ApplySensitivity();v.text=currentSensitivity.ToString("0.0");SaveSettings(); });
+        }
+        void BindRow(RectTransform p,string action,string lbl,float y)
+        {
+            var row=R(p,action+"R",new Vector2(0,1),new Vector2(1,1),new Vector2(12,y-13),new Vector2(-12,y+13),new Color(0.06f,0.07f,0.10f,1));
+            row.GetComponent<Image>().raycastTarget=false;
+            L(row,"N",lbl,10,FontStyle.Normal,new Vector2(0,.5f),new Vector2(0,.5f),new Vector2(6,0),new Vector2(90,16),colText,TextAnchor.MiddleLeft);
+            var bl=L(row,"B","—",9,FontStyle.Normal,new Vector2(0.4f,.5f),new Vector2(0.4f,.5f),V2(0),new Vector2(80,16),colMuted,TextAnchor.MiddleCenter);
+            bindLabels[action]=bl;
+            Mini(row,"Rb","Rebind",new Vector2(1,.5f),new Vector2(1,.5f),new Vector2(-60,-10),new Vector2(-4,10),()=>StartRebind(action));
+        }
+        Text MetricBar(RectTransform p,string lbl,float y,out Image fill)
+        {
+            // Label on left
+            L(p,lbl+"L",lbl,11,FontStyle.Normal,new Vector2(0,1),new Vector2(0.6f,1),new Vector2(12,y),new Vector2(-4,16),colMuted,TextAnchor.MiddleLeft);
+            // Value % on right
+            var val=L(p,lbl+"V","0%",11,FontStyle.Bold,new Vector2(1,1),new Vector2(1,1),new Vector2(-12,y),new Vector2(42,16),colText,TextAnchor.MiddleRight);
+            // Bar background — 8px tall, sits below label row
+            var bg=R(p,lbl+"BG",new Vector2(0,1),new Vector2(1,1),new Vector2(12,y-20),new Vector2(-12,y-10),new Color(0.08f,0.09f,0.13f,1));
+            bg.GetComponent<Image>().raycastTarget=false;
+            // Fill — anchored 0→0 width, grows via fillAmount (Horizontal Filled)
+            var fg=new GameObject(lbl+"F",typeof(RectTransform));
+            fg.transform.SetParent(bg,false);
+            var frt=fg.GetComponent<RectTransform>();
+            frt.anchorMin=V2(0); frt.anchorMax=V2(1);
+            frt.offsetMin=frt.offsetMax=V2(0);
+            fill=fg.AddComponent<Image>();
+            fill.color=colAccent; fill.type=Image.Type.Filled;
+            fill.fillMethod=Image.FillMethod.Horizontal;
+            fill.fillOrigin=0; fill.fillAmount=0f; fill.raycastTarget=false;
+            return val;
         }
 
-        private void BuildSensitivityRow(RectTransform parent, Vector2 pos)
+        // ── REFRESH ───────────────────────────────────────────────────────────
+        void RefreshCards()
         {
-            var row = CreatePanel(parent,"SensRow",new Vector2(0,1),new Vector2(1,1),new Vector2(pos.x,pos.y-8),new Vector2(-16,pos.y+28),new Color(0,0,0,0));
-            CreateLabel(row,"Lbl","Sensitivity",12,FontStyle.Bold,new Vector2(0,.5f),new Vector2(0,.5f),new Vector2(0,0),new Vector2(80,18),mutedTextColor,TextAnchor.MiddleLeft);
-            var val = CreateLabel(row,"Val",currentSensitivity.ToString("0.0"),12,FontStyle.Bold,new Vector2(.5f,.5f),new Vector2(.5f,.5f),new Vector2(-10,0),new Vector2(70,18),textColor,TextAnchor.MiddleCenter);
-            MakeAdjustButton(row,"SDec",new Vector2(-74,-12),new Vector2(-50,12),"-",()=>{
-                currentSensitivity=Mathf.Clamp(currentSensitivity-0.5f,2f,16f); ApplySensitivity(); val.text=currentSensitivity.ToString("0.0"); SaveSettings();
-            });
-            MakeAdjustButton(row,"SInc",new Vector2(-44,-12),new Vector2(-20,12),"+",()=>{
-                currentSensitivity=Mathf.Clamp(currentSensitivity+0.5f,2f,16f); ApplySensitivity(); val.text=currentSensitivity.ToString("0.0"); SaveSettings();
-            });
+            if (cardStrip==null) return;
+            foreach(var c in cards) if(c!=null) Destroy(c.gameObject);
+            cards.Clear(); focusOrder.RemoveAll(b=>b==null);
+            int total=sessionManager!=null?sessionManager.StageCount:0;
+            int end=Mathf.Min(cardOffset+CardsPerPage,total);
+            float cw=1f/CardsPerPage;
+            for(int i=cardOffset;i<end;i++)
+            {
+                int idx=i; bool active=sessionManager!=null&&i==sessionManager.CurrentStageIndex&&sessionManager.HasStarted;
+                float xMin=(i-cardOffset)*cw, xMax=xMin+cw-0.012f;
+                var card=R(cardStrip,"C"+i,new Vector2(xMin,0),new Vector2(xMax,1),new Vector2(3,3),new Vector2(-3,-3),
+                    active?new Color(0.18f,0.14f,0.34f,1):new Color(0.07f,0.08f,0.12f,1));
+                cards.Add(card);
+                if(active){ var ab=R(card,"AB",new Vector2(0,1),new Vector2(1,1),new Vector2(0,-3),V2(0),colAccent); ab.GetComponent<Image>().raycastTarget=false; }
+                L(card,"N",sessionManager.GetStageName(i),11,FontStyle.Bold,new Vector2(0,1),new Vector2(1,1),new Vector2(8,-12),new Vector2(-8,18),colText,TextAnchor.MiddleLeft);
+                L(card,"S",sessionManager.GetStageSummary(i),9,FontStyle.Normal,new Vector2(0,1),new Vector2(1,1),new Vector2(8,-28),new Vector2(-8,16),colMuted,TextAnchor.MiddleLeft);
+                var btn=card.gameObject.AddComponent<Button>(); btn.transition=Selectable.Transition.ColorTint; btn.colors=CardColors();
+                btn.onClick.AddListener(()=>{
+                    if(sessionManager==null) return;
+                    // If session not running, begin it then jump to chosen stage
+                    if(!sessionManager.IsRunning)
+                        sessionManager.BeginSession();
+                    sessionManager.SelectStage(idx);
+                    RefreshCards();
+                });
+                focusOrder.Add(btn);
+            }
+            if(pageLabel!=null&&total>0) pageLabel.text=$"{cardOffset+1}–{end} of {total}";
         }
 
-        private void MakeAdjustButton(RectTransform parent, string name, Vector2 oMin, Vector2 oMax, string label, UnityAction onClick)
+        void RefreshUi()
         {
-            var r = CreatePanel(parent,name,new Vector2(1,.5f),new Vector2(1,.5f),oMin,oMax,accentColor);
-            AddEdge(r,accentColor);
-            var btn = r.gameObject.AddComponent<Button>();
-            btn.transition=Selectable.Transition.ColorTint; btn.colors=BuildButtonColors();
-            btn.onClick.AddListener(onClick);
-            CreateLabel(r,"T",label,14,FontStyle.Bold,new Vector2(.5f,.5f),new Vector2(.5f,.5f),Vector2.zero,new Vector2(20,18),textColor,TextAnchor.MiddleCenter);
+            if(sessionManager==null) return;
+            // Nav highlights
+            for(int i=0;i<navHi.Length;i++){
+                if(navHi[i]==null) continue;
+                bool s=(i==0&&currentPage==NavPage.Dashboard)||(i==1&&currentPage==NavPage.Drills)||(i==6&&currentPage==NavPage.Settings);
+                navHi[i].color=s?new Color(0.20f,0.14f,0.38f,1):new Color(0,0,0,0);
+                var t=navHi[i].GetComponentInChildren<Text>(); if(t!=null) t.color=s?colText:colMuted;
+            }
+            // Top bar
+            if(topConn!=null){ bool c=inputHandler!=null&&inputHandler.ControllerConnected; topConn.text=c?"● Connected":"● Disconnected"; topConn.color=c?colSuccess:colMuted; }
+            if(topProfile!=null&&inputHandler!=null) topProfile.text=inputHandler.AimHeld?"ADS Active • Precision Mode":"Aimer • Ready";
+            // Center
+            if(stageName!=null)  stageName.text=sessionManager.HasStarted?sessionManager.CurrentStageName:"READY";
+            if(stageSub!=null)   stageSub.text=sessionManager.GetStageSummary(sessionManager.CurrentStageIndex);
+            if(stageInstr!=null) stageInstr.text=sessionManager.GetDrillInstructions();
+            if(precLabel!=null&&inputHandler!=null){ bool a=inputHandler.AimHeld; precLabel.text=a?"ADS: ON":"ADS: OFF"; precLabel.color=a?colAccent:colMuted; }
+            if(startBtnTxt!=null) startBtnTxt.text=sessionManager.IsRunning?"■  STOP SESSION":"▶  START SESSION";
+            if(tipText!=null) tipText.text=sessionManager.State switch{
+                TrainingSessionManager.SessionState.Running=>"Smooth and steady. Consistency builds precision.",
+                TrainingSessionManager.SessionState.Paused =>"Session paused. Resume or restart.",
+                TrainingSessionManager.SessionState.Results=>"Session complete! Check your stats.",
+                _=>"Press START or click a drill card to begin."};
+            // Metrics
+            float tot=sessionManager.CurrentTotalScore;
+            gaugeDisp?.SetFill(tot/100f,0.2f);
+            if(gaugeText!=null&&gaugeDisp!=null) gaugeText.text=(gaugeDisp.CurrentFill*100f).ToString("0.0");
+            accFD?.SetFill(sessionManager.CurrentAccuracy/100f,0.15f);
+            smFD?.SetFill(sessionManager.CurrentSmoothness/100f,0.15f);
+            spFD?.SetFill(sessionManager.CurrentSpeedConsistency/100f,0.15f);
+            float rk=1f-Mathf.Clamp01(sessionManager.CurrentDeviation/0.5f);
+            rkFD?.SetFill(rk,0.15f);
+            accND?.SetValue(sessionManager.CurrentAccuracy,0.1f);
+            smND?.SetValue(sessionManager.CurrentSmoothness,0.1f);
+            spND?.SetValue(sessionManager.CurrentSpeedConsistency,0.1f);
+            rkND?.SetValue(rk*100f,0.1f);
+            if(accTxt!=null&&accND!=null) accTxt.text=accND.CurrentValue.ToString("0")+"%";
+            if(smTxt !=null&&smND !=null) smTxt.text =smND.CurrentValue.ToString("0") +"%";
+            if(spTxt !=null&&spND !=null) spTxt.text =spND.CurrentValue.ToString("0") +"%";
+            if(rkTxt !=null&&rkND !=null) rkTxt.text =rkND.CurrentValue.ToString("0") +"%";
+            if(perfStage!=null) perfStage.text=$"Stage {sessionManager.CurrentStageIndex+1}/{sessionManager.StageCount}  •  Tier {sessionManager.DifficultyTier}  •  {sessionManager.ElapsedSeconds:0.0}s";
+            RefreshBindings();
+            UpdateOverlay();
         }
 
-        private void BuildDifficultyButtons(RectTransform parent, Vector2 pos)
+        void UpdateOverlay()
         {
-            var row = CreatePanel(parent,"DiffRow",new Vector2(0,1),new Vector2(1,1),new Vector2(pos.x,pos.y-8),new Vector2(-16,pos.y+40),new Color(0,0,0,0));
-            CreateLabel(row,"Lbl","Difficulty",12,FontStyle.Bold,new Vector2(0,1),new Vector2(0,1),new Vector2(0,-2),new Vector2(90,18),mutedTextColor,TextAnchor.MiddleLeft);
-            CreateDiffButton(row,"Easy",  DifficultyPreset.Easy,  new Vector2(0,0),  new Vector2(76,28));
-            CreateDiffButton(row,"Normal",DifficultyPreset.Normal,new Vector2(82,0), new Vector2(76,28));
-            CreateDiffButton(row,"Hard",  DifficultyPreset.Hard,  new Vector2(164,0),new Vector2(76,28));
+            if(overlayPanel==null||overlayFade==null) return;
+            bool show=sessionManager.State==TrainingSessionManager.SessionState.Paused||sessionManager.State==TrainingSessionManager.SessionState.Results;
+            if(show!=lastOverlay){ lastOverlay=show; overlayPanel.gameObject.SetActive(true); if(show) overlayFade.FadeIn(0.25f); else overlayFade.FadeOut(0.2f); }
+            if(!show) return;
+            if(overlayTitle!=null)   overlayTitle.text=sessionManager.State==TrainingSessionManager.SessionState.Results?"RESULTS":"PAUSED";
+            if(overlayBody!=null)    overlayBody.text=sessionManager.State==TrainingSessionManager.SessionState.Results?"Session complete. Restart when ready.":"Session paused. Resume to continue.";
+            if(overlaySummary!=null) overlaySummary.text=$"Score {sessionManager.CurrentTotalScore:0.0}  |  Peak {sessionManager.PeakScore:0.0}  |  Avg {sessionManager.AverageScore:0.0}  |  {sessionManager.ElapsedSeconds:0.0}s";
         }
 
-        private void CreateDiffButton(RectTransform parent, string label, DifficultyPreset preset, Vector2 oMin, Vector2 size)
+        void InitSmooth()
         {
-            var r = CreatePanel(parent,label,new Vector2(0,0),new Vector2(0,0),oMin,oMin+size,accentColor);
-            AddEdge(r,accentColor);
-            var btn = r.gameObject.AddComponent<Button>(); btn.transition=Selectable.Transition.ColorTint; btn.colors=BuildButtonColors();
-            btn.onClick.AddListener(()=>SetDifficultyPreset(preset));
-            RegisterFocusable(btn);
-            CreateLabel(r,"T",label,12,FontStyle.Bold,new Vector2(.5f,.5f),new Vector2(.5f,.5f),Vector2.zero,new Vector2(70,18),textColor,TextAnchor.MiddleCenter);
+            gaugeDisp=new SmoothFillDisplay(gaugeFill);
+            accFD=new SmoothFillDisplay(accBar); smFD=new SmoothFillDisplay(smBar);
+            spFD=new SmoothFillDisplay(spBar);   rkFD=new SmoothFillDisplay(rkBar);
+            // FIX: force all bars to 0 immediately so they don't show as full on first frame
+            gaugeDisp.SetFillInstant(0f);
+            accFD.SetFillInstant(0f); smFD.SetFillInstant(0f);
+            spFD.SetFillInstant(0f);  rkFD.SetFillInstant(0f);
+            accND=new SmoothNumberDisplay(accTxt,"0"); smND=new SmoothNumberDisplay(smTxt,"0");
+            spND=new SmoothNumberDisplay(spTxt,"0");   rkND=new SmoothNumberDisplay(rkTxt,"0");
+            if(overlayPanel!=null){
+                overlayGroup=overlayPanel.GetComponent<CanvasGroup>()??overlayPanel.gameObject.AddComponent<CanvasGroup>();
+                overlayFade=new SmoothPanelTransition(overlayGroup);
+                overlayFade.SetAlphaInstant(0f);
+            }
         }
 
-        private Text CreateMetricRow(RectTransform parent, string label, float initial, Vector2 pos, out Image fill)
+        // ── SETTINGS ─────────────────────────────────────────────────────────
+        void LoadSettings(){ currentDeadzone=PlayerPrefs.GetFloat(DZKey,currentDeadzone); currentSensitivity=PlayerPrefs.GetFloat(SensKey,currentSensitivity); currentDiff=(DifficultyPreset)PlayerPrefs.GetInt(DiffKey,(int)DifficultyPreset.Normal); }
+        void SaveSettings(){ PlayerPrefs.SetFloat(DZKey,currentDeadzone); PlayerPrefs.SetFloat(SensKey,currentSensitivity); PlayerPrefs.SetInt(DiffKey,(int)currentDiff); PlayerPrefs.Save(); }
+        void ApplyDeadzone()   => inputHandler?.SetDeadzone(currentDeadzone);
+        void ApplySensitivity()=> cursorController?.SetSensitivity(currentSensitivity);
+        void ApplyDiff(){ if(sessionManager==null) return; var(sz,th,tol)=currentDiff switch{DifficultyPreset.Easy=>(1f,1f,1f),DifficultyPreset.Hard=>(0.92f,0.84f,0.80f),_=>(0.97f,0.92f,0.90f)}; sessionManager.SetDifficultyProfile(sz,th,tol); }
+        void SwitchPage(NavPage p)
         {
-            CreateLabel(parent,label+"Lbl",label,14,FontStyle.Normal,new Vector2(0,1),new Vector2(0,1),pos,new Vector2(220,20),mutedTextColor,TextAnchor.MiddleLeft);
-            var txt = CreateLabel(parent,label+"Val","0%",14,FontStyle.Bold,new Vector2(1,1),new Vector2(1,1),new Vector2(-22,pos.y),new Vector2(70,20),textColor,TextAnchor.MiddleRight);
-            fill = CreateProgressBar(parent, new Vector2(22,pos.y-22), new Vector2(-22,8), accentColor, initial);
-            return txt;
+            currentPage = p;
+            // When switching to Drills page, ensure cards are visible and reset offset
+            if (p == NavPage.Drills)
+            {
+                cardOffset = 0;
+                RefreshCards();
+            }
         }
 
-        private Image CreateProgressBar(RectTransform parent, Vector2 pos, Vector2 size, Color fillColor, float initial)
-        {
-            var bg = CreatePanel(parent,"Bar",new Vector2(0,1),new Vector2(1,1),new Vector2(pos.x,pos.y-size.y),new Vector2(size.x,pos.y),new Color(0.15f,0.17f,0.24f,1));
-            var fillRect = CreatePanel(bg,"Fill",Vector2.zero,Vector2.one,Vector2.zero,Vector2.zero,fillColor);
-            var img = fillRect.gameObject.AddComponent<Image>();
-            img.color=fillColor; img.type=Image.Type.Filled; img.fillMethod=Image.FillMethod.Horizontal; img.fillOrigin=0; img.fillAmount=Mathf.Clamp01(initial);
-            return img;
-        }
+        // ── REBINDING ─────────────────────────────────────────────────────────
+        void RefreshBindings(){ if(inputHandler==null) return; foreach(var kv in bindLabels){ var a=inputHandler.FindAction(kv.Key); kv.Value.text=a!=null?a.GetBindingDisplayString():"—"; } }
+        void StartRebind(string n){ if(inputHandler==null||isRebinding) return; var a=inputHandler.FindAction(n); if(a==null) return; isRebinding=true; a.Disable(); activeRebind=a.PerformInteractiveRebinding(0).WithCancelingThrough("<Keyboard>/escape").WithControlsExcluding("Mouse").OnCancel(_=>EndRebind(a)).OnComplete(_=>EndRebind(a)); activeRebind.Start(); }
+        void EndRebind(InputAction a){ activeRebind?.Dispose(); activeRebind=null; a.Enable(); inputHandler?.SaveBindingOverrides(); isRebinding=false; RefreshBindings(); }
+        void ResetAllBindings(){ var asset=inputHandler?.GetInputActionsAsset(); if(asset==null) return; asset.RemoveAllBindingOverrides(); PlayerPrefs.DeleteKey(inputHandler.BindingOverridesKey); PlayerPrefs.Save(); RefreshBindings(); }
 
-        private void CreateRebindRow(RectTransform parent, string actionName, string label, float x, float y)
-        {
-            var row = CreatePanel(parent,actionName+"Row",new Vector2(0,0),new Vector2(1,0),new Vector2(x,y-8),new Vector2(-22,y+26),new Color(0.07f,0.08f,0.11f,1));
-            CreateLabel(row,"Name",label,13,FontStyle.Bold,new Vector2(0,.5f),new Vector2(0,.5f),new Vector2(12,0),new Vector2(120,20),textColor,TextAnchor.MiddleLeft);
-            var bindLbl = CreateLabel(row,"Binding","",12,FontStyle.Normal,new Vector2(.48f,.5f),new Vector2(.48f,.5f),Vector2.zero,new Vector2(110,20),mutedTextColor,TextAnchor.MiddleCenter);
-            bindingLabels[actionName] = bindLbl;
-            var r = CreatePanel(row,"RebindBtn",new Vector2(1,.5f),new Vector2(1,.5f),new Vector2(-92,-14),new Vector2(-12,14),accentColor);
-            AddEdge(r,accentColor);
-            var btn = r.gameObject.AddComponent<Button>(); btn.transition=Selectable.Transition.ColorTint; btn.colors=BuildButtonColors();
-            btn.onClick.AddListener(()=>StartRebind(actionName)); RegisterFocusable(btn);
-            CreateLabel(r,"T","Rebind",12,FontStyle.Bold,new Vector2(.5f,.5f),new Vector2(.5f,.5f),Vector2.zero,new Vector2(72,18),textColor,TextAnchor.MiddleCenter);
-        }
+        // ── CONTROLLER NAV ────────────────────────────────────────────────────
+        void HandleNav(){ if(focusOrder.Count==0) return; Vector2 nav=Vector2.zero; if(Gamepad.current!=null){nav+=Gamepad.current.leftStick.ReadValue();nav+=Gamepad.current.dpad.ReadValue();} if(Keyboard.current!=null&&Keyboard.current.tabKey.wasPressedThisFrame) nav.y=-1f; if(nav.sqrMagnitude<0.35f){navTimer=0f;return;} navTimer-=Time.unscaledDeltaTime; if(navTimer>0f) return; int dir=Mathf.Abs(nav.y)>=Mathf.Abs(nav.x)?(nav.y>0f?-1:1):(nav.x>0f?1:-1); focusIdx=Mathf.Clamp(focusIdx+dir,0,focusOrder.Count-1); var b=focusOrder[focusIdx]; if(b!=null) EventSystem.current?.SetSelectedGameObject(b.gameObject); navTimer=NavDelay; }
+        void EnsureFocus(){ if(focusOrder.Count==0) return; focusIdx=0; EventSystem.current?.SetSelectedGameObject(focusOrder[0]?.gameObject); }
+        void ActivateFocused(){ if(focusIdx<0||focusIdx>=focusOrder.Count) return; var b=focusOrder[focusIdx]; if(b!=null&&b.interactable) b.onClick.Invoke(); }
+        void TogglePause(){ if(sessionManager==null) return; switch(sessionManager.State){ case TrainingSessionManager.SessionState.Running: sessionManager.PauseSession(); break; case TrainingSessionManager.SessionState.Paused: sessionManager.ResumeSession(); break; case TrainingSessionManager.SessionState.Results: sessionManager.RestartSession(); break; } }
 
-        private void CreateActionButton(RectTransform parent, string name, string label, UnityAction onClick)
-        {
-            var r = CreatePanel(parent,name,new Vector2(0,0),new Vector2(0,1),Vector2.zero,new Vector2(196,-6),accentColor);
-            AddEdge(r,accentColor);
-            var btn = r.gameObject.AddComponent<Button>(); btn.transition=Selectable.Transition.ColorTint; btn.colors=BuildButtonColors();
-            btn.onClick.AddListener(onClick); RegisterFocusable(btn);
-            CreateLabel(r,"T",label,16,FontStyle.Bold,new Vector2(.5f,.5f),new Vector2(.5f,.5f),Vector2.zero,new Vector2(180,24),textColor,TextAnchor.MiddleCenter);
-        }
-
-        private Button CreateStageCard(RectTransform parent, string title, string subtitle, int stageIndex)
-        {
-            var card = CreatePanel(parent,title,new Vector2(0,0),new Vector2(0,1),new Vector2(0,8),new Vector2(236,-8),new Color(0.09f,0.10f,0.14f,1));
-            AddEdge(card);
-            var btn = card.gameObject.AddComponent<Button>(); btn.transition=Selectable.Transition.ColorTint; btn.colors=BuildButtonColors();
-            btn.onClick.AddListener(()=>sessionManager?.SelectStage(stageIndex)); RegisterFocusable(btn);
-            CreateLabel(card,"T",title,14,FontStyle.Bold,new Vector2(0,1),new Vector2(0,1),new Vector2(16,-16),new Vector2(200,20),textColor,TextAnchor.MiddleLeft);
-            CreateLabel(card,"S",subtitle,12,FontStyle.Normal,new Vector2(0,1),new Vector2(0,1),new Vector2(16,-40),new Vector2(200,28),mutedTextColor,TextAnchor.MiddleLeft);
-            return btn;
-        }
-
-        private Button CreateOverlayButton(RectTransform parent, string name, string label, Vector2 oMin, Vector2 size, UnityAction onClick)
-        {
-            var r = CreatePanel(parent,name,new Vector2(0,0),new Vector2(0,0),oMin,oMin+size,accentColor);
-            AddEdge(r,accentColor);
-            var btn = r.gameObject.AddComponent<Button>(); btn.transition=Selectable.Transition.ColorTint; btn.colors=BuildButtonColors();
-            if (onClick!=null) btn.onClick.AddListener(onClick); RegisterFocusable(btn);
-            CreateLabel(r,"T",label,16,FontStyle.Bold,new Vector2(.5f,.5f),new Vector2(.5f,.5f),Vector2.zero,new Vector2(180,24),textColor,TextAnchor.MiddleCenter);
-            return btn;
-        }
-
-        // ── Low-level helpers ─────────────────────────────────────────────────
-        private RectTransform CreatePanel(RectTransform parent, string name, Vector2 ancMin, Vector2 ancMax, Vector2 oMin, Vector2 oMax, Color color)
-        {
-            var go = new GameObject(name, typeof(RectTransform));
-            go.transform.SetParent(parent, false);
-            var rt = go.GetComponent<RectTransform>();
-            rt.anchorMin=ancMin; rt.anchorMax=ancMax; rt.offsetMin=oMin; rt.offsetMax=oMax;
-            go.AddComponent<Image>().color=color;
-            return rt;
-        }
-
-        private RectTransform CreateRow(RectTransform parent, Vector2 pos, float w, float h) =>
-            CreatePanel(parent,"Row",new Vector2(0,0),new Vector2(0,0),pos,new Vector2(pos.x+w,pos.y+h),new Color(0,0,0,0));
-
-        private Image CreateFilledImage(RectTransform parent, string name, Color color, Image.FillMethod fill)
-        {
-            var go = new GameObject(name, typeof(RectTransform));
-            go.transform.SetParent(parent, false);
-            var rt = go.GetComponent<RectTransform>();
-            rt.anchorMin=Vector2.zero; rt.anchorMax=Vector2.one; rt.offsetMin=rt.offsetMax=Vector2.zero;
-            var img = go.AddComponent<Image>();
-            img.sprite=Resources.GetBuiltinResource<Sprite>("UI/Skin/UISprite.psd");
-            img.type=Image.Type.Filled; img.fillMethod=fill; img.fillOrigin=0; img.color=color; img.raycastTarget=false;
-            return img;
-        }
-
-        private Text CreateLabel(RectTransform parent, string name, string value, int size, FontStyle style,
-            Vector2 ancMin, Vector2 ancMax, Vector2 oMin, Vector2 oMax, Color color, TextAnchor align)
-        {
-            var go = new GameObject(name, typeof(RectTransform));
-            go.transform.SetParent(parent, false);
-            var rt = go.GetComponent<RectTransform>();
-            rt.anchorMin=ancMin; rt.anchorMax=ancMax; rt.offsetMin=oMin; rt.offsetMax=oMax;
-            var t = go.AddComponent<Text>();
-            t.text=value; t.font=uiFont; t.fontSize=size; t.fontStyle=style;
-            t.color=color; t.alignment=align;
-            t.horizontalOverflow=HorizontalWrapMode.Overflow; t.verticalOverflow=VerticalWrapMode.Overflow;
-            return t;
-        }
-
-        private void AddEdge(RectTransform panel, Color? color=null)
-        {
-            var go = new GameObject("Edge", typeof(RectTransform));
-            go.transform.SetParent(panel, false);
-            var rt = go.GetComponent<RectTransform>();
-            rt.anchorMin=Vector2.zero; rt.anchorMax=Vector2.one; rt.offsetMin=rt.offsetMax=Vector2.zero;
-            var img = go.AddComponent<Image>();
-            Color c = color ?? panelEdgeColor;
-            img.color = new Color(c.r,c.g,c.b,0.04f); img.raycastTarget=false;
-        }
-
-        private ColorBlock BuildButtonColors() => new ColorBlock
-        {
-            normalColor      = new Color(0,0,0,0),
-            highlightedColor = new Color(1,1,1,0.06f),
-            pressedColor     = new Color(1,1,1,0.12f),
-            selectedColor    = new Color(1,1,1,0.06f),
-            disabledColor    = new Color(1,1,1,0.02f),
-            colorMultiplier  = 1f,
-            fadeDuration     = 0.1f
-        };
-
-        private void EnsureEventSystem()
-        {
-            if (EventSystem.current != null) return;
-            var go = new GameObject("EventSystem");
-            go.AddComponent<EventSystem>();
-            go.AddComponent<StandaloneInputModule>();
-        }
+        // ── PRIMITIVES ────────────────────────────────────────────────────────
+        static Vector2 V2(float v)=>new Vector2(v,v);
+        static Vector2 MH(float a)=>new Vector2(a,0.5f);
+        Image P(RectTransform p,string n,Vector2 a0,Vector2 a1,Vector2 o0,Vector2 o1,Color c){ var go=new GameObject(n,typeof(RectTransform)); go.transform.SetParent(p,false); var rt=go.GetComponent<RectTransform>(); rt.anchorMin=a0;rt.anchorMax=a1;rt.offsetMin=o0;rt.offsetMax=o1; var img=go.AddComponent<Image>(); img.color=c; return img; }
+        RectTransform R(RectTransform p,string n,Vector2 a0,Vector2 a1,Vector2 o0,Vector2 o1,Color c)=>P(p,n,a0,a1,o0,o1,c).rectTransform;
+        Text L(RectTransform p,string n,string txt,int sz,FontStyle fs,Vector2 a0,Vector2 a1,Vector2 o0,Vector2 o1,Color c,TextAnchor al){ var go=new GameObject(n,typeof(RectTransform)); go.transform.SetParent(p,false); var rt=go.GetComponent<RectTransform>(); rt.anchorMin=a0;rt.anchorMax=a1;rt.offsetMin=o0;rt.offsetMax=o1; var t=go.AddComponent<Text>(); t.font=uiFont;t.text=txt;t.fontSize=sz;t.fontStyle=fs;t.color=c;t.alignment=al;t.horizontalOverflow=HorizontalWrapMode.Overflow;t.verticalOverflow=VerticalWrapMode.Overflow; return t; }
+        Button MkBtn(RectTransform p,string n,string lbl,Vector2 a0,Vector2 a1,Color bg,UnityAction onClick,Vector2 o0=default,Vector2 o1=default){ var rt=R(p,n,a0,a1,o0,o1,bg); var btn=rt.gameObject.AddComponent<Button>(); btn.transition=Selectable.Transition.ColorTint; btn.colors=CardColors(); if(onClick!=null) btn.onClick.AddListener(onClick); focusOrder.Add(btn); L(rt,"T",lbl,13,FontStyle.Bold,new Vector2(0.5f,0.5f),new Vector2(0.5f,0.5f),new Vector2(-70,-11),new Vector2(70,11),colText,TextAnchor.MiddleCenter); return btn; }
+        void Mini(RectTransform p,string n,string lbl,Vector2 a0,Vector2 a1,Vector2 o0,Vector2 o1,UnityAction onClick){ var rt=R(p,n,a0,a1,o0,o1,colAccent); var btn=rt.gameObject.AddComponent<Button>(); btn.transition=Selectable.Transition.ColorTint; btn.colors=CardColors(); btn.onClick.AddListener(onClick); L(rt,"T",lbl,11,FontStyle.Bold,new Vector2(0.5f,0.5f),new Vector2(0.5f,0.5f),V2(-8),V2(8),colText,TextAnchor.MiddleCenter); }
+        ColorBlock NavColors()=>new ColorBlock{normalColor=new Color(0,0,0,0),highlightedColor=new Color(0.20f,0.14f,0.38f,1),pressedColor=new Color(0.28f,0.20f,0.48f,1),selectedColor=new Color(0.20f,0.14f,0.38f,1),disabledColor=new Color(0.3f,0.3f,0.3f,0.5f),colorMultiplier=1f,fadeDuration=0.1f};
+        ColorBlock CardColors()=>new ColorBlock{normalColor=new Color(0,0,0,0),highlightedColor=new Color(1,1,1,0.08f),pressedColor=new Color(1,1,1,0.15f),selectedColor=new Color(1,1,1,0.08f),disabledColor=new Color(1,1,1,0.02f),colorMultiplier=1f,fadeDuration=0.1f};
+        void EnsureES(){ if(EventSystem.current!=null) return; var go=new GameObject("EventSystem"); go.AddComponent<EventSystem>(); go.AddComponent<StandaloneInputModule>(); }
     }
 }

@@ -6,50 +6,39 @@ namespace StickLab.Analytics
     public class AnalyticsDashboardUI : MonoBehaviour
     {
         [Header("References")]
-        [SerializeField] private HeatmapRecorder heatmapRecorder;
+        [SerializeField] private HeatmapRecorder        heatmapRecorder;
         [SerializeField] private HeatmapReplayController replayController;
 
         [Header("Layout")]
-        [SerializeField] private bool buildOnAwake = true;
-        [SerializeField] private KeyCode toggleKey = KeyCode.F2;
+        [SerializeField] private bool    buildOnAwake = true;
+        [SerializeField] private KeyCode toggleKey    = KeyCode.F2;
 
         [Header("Visuals")]
         [SerializeField] private Color backgroundColor = new Color(0.04f, 0.05f, 0.07f, 0.96f);
-        [SerializeField] private Color panelColor = new Color(0.10f, 0.12f, 0.17f, 0.98f);
-        [SerializeField] private Color accentColor = new Color(0.57f, 0.42f, 1f, 1f);
-        [SerializeField] private Color textColor = new Color(0.95f, 0.96f, 1f, 1f);
-        [SerializeField] private Color mutedTextColor = new Color(0.73f, 0.78f, 0.88f, 1f);
-        [SerializeField] private Font uiFont;
+        [SerializeField] private Color panelColor      = new Color(0.10f, 0.12f, 0.17f, 0.98f);
+        [SerializeField] private Color accentColor     = new Color(0.57f, 0.42f, 1f,   1f);
+        [SerializeField] private Color textColor       = new Color(0.95f, 0.96f, 1f,   1f);
+        [SerializeField] private Color mutedColor      = new Color(0.73f, 0.78f, 0.88f,1f);
+        [SerializeField] private Font  uiFont;
 
-        private Canvas canvas;
-        private Text summaryText;
-        private Text replayStatusText;
+        // ── UI refs ───────────────────────────────────────────────────────────
+        private Canvas   canvas;
+        private Text     sampleCountText, avgScoreText, peakScoreText, avgVelocityText, durationText;
+        private Text     replayStatusText;
         private RawImage heatmapPreview;
-        private Text sampleCountText;
-        private Text averageScoreText;
-        private Text peakScoreText;
-        private Text averageVelocityText;
-        private Text durationText;
-        private Button renderButton;
-        private Button replayButton;
-        private Button clearButton;
-        private bool visible = true;
+        private bool     visible = false;  // FIX: hidden by default, F2 to toggle
 
+        // ── Unity ─────────────────────────────────────────────────────────────
         private void Awake()
         {
-            if (uiFont == null)
-            {
-                uiFont = Resources.GetBuiltinResource<Font>("Arial.ttf");
-            }
-
-            if (buildOnAwake)
-            {
-                BuildUi();
-            }
+            if (uiFont == null) uiFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            if (buildOnAwake) BuildUi();
         }
 
         private void Start()
         {
+            // FIX: hide on start — press F2 to show analytics
+            if (canvas != null) canvas.enabled = false;
             RefreshUi();
         }
 
@@ -58,222 +47,169 @@ namespace StickLab.Analytics
             if (Input.GetKeyDown(toggleKey))
             {
                 visible = !visible;
-                if (canvas != null)
-                {
-                    canvas.enabled = visible;
-                }
+                if (canvas != null) canvas.enabled = visible;
             }
-
-            if (!visible)
-            {
-                return;
-            }
-
-            RefreshUi();
+            if (visible) RefreshUi();
         }
 
-        public void SetReferences(HeatmapRecorder recorder, HeatmapReplayController replay)
+        public void SetReferences(HeatmapRecorder rec, HeatmapReplayController replay)
         {
-            heatmapRecorder = recorder;
+            heatmapRecorder  = rec;
             replayController = replay;
         }
 
+        // ── UI construction ───────────────────────────────────────────────────
         private void BuildUi()
         {
-            GameObject canvasObject = new GameObject("Analytics Canvas");
-            canvasObject.transform.SetParent(transform, false);
-            canvas = canvasObject.AddComponent<Canvas>();
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            canvas.sortingOrder = 120;
-            canvasObject.AddComponent<CanvasScaler>();
-            canvasObject.AddComponent<GraphicRaycaster>();
+            var go = new GameObject("Analytics Canvas");
+            go.transform.SetParent(transform, false);
+            canvas = go.AddComponent<Canvas>();
+            canvas.renderMode   = RenderMode.ScreenSpaceOverlay;
+            canvas.sortingOrder = 110;  // above game, below nothing critical
+            go.AddComponent<GraphicRaycaster>();
 
-            CanvasScaler scaler = canvasObject.GetComponent<CanvasScaler>();
-            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            var scaler = go.AddComponent<CanvasScaler>();
+            scaler.uiScaleMode        = CanvasScaler.ScaleMode.ScaleWithScreenSize;
             scaler.referenceResolution = new Vector2(1920f, 1080f);
-            scaler.matchWidthOrHeight = 0.5f;
+            scaler.matchWidthOrHeight  = 0.5f;
 
-            RectTransform root = canvas.GetComponent<RectTransform>();
-            RectTransform panel = CreatePanel(root, "AnalyticsPanel", new Vector2(0.28f, 0.12f), new Vector2(0.88f, 0.82f), Vector2.zero, Vector2.zero, panelColor);
-            CreateEdge(panel, accentColor);
-            CreateBackground(root);
+            var root = canvas.GetComponent<RectTransform>();
 
-            CreateLabel(panel, "Title", "ANALYTICS / HEATMAP", 28, FontStyle.Bold, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(28f, -26f), new Vector2(420f, 34f), textColor, TextAnchor.MiddleLeft);
-            summaryText = CreateLabel(panel, "Summary", "Track session precision, replay aim paths, and inspect weak areas.", 16, FontStyle.Normal, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(28f, -60f), new Vector2(700f, 24f), mutedTextColor, TextAnchor.MiddleLeft);
+            // Background (non-raycast)
+            var bg = MakePanel(root, "BG", new Vector2(0.28f,0.12f), new Vector2(0.88f,0.82f), Vector2.zero, Vector2.zero, backgroundColor);
+            bg.GetComponent<Image>().raycastTarget = false;
 
-            RectTransform stats = CreatePanel(panel, "Stats", new Vector2(0f, 1f), new Vector2(0.38f, 0f), new Vector2(28f, -110f), new Vector2(360f, 28f), new Color(0.07f, 0.08f, 0.11f, 0.95f));
-            CreateEdge(stats);
-            sampleCountText = CreateStatRow(stats, "Samples", 0f, 12f);
-            averageScoreText = CreateStatRow(stats, "Avg Score", 1f, 42f);
-            peakScoreText = CreateStatRow(stats, "Peak Score", 2f, 72f);
-            averageVelocityText = CreateStatRow(stats, "Avg Velocity", 3f, 102f);
-            durationText = CreateStatRow(stats, "Duration", 4f, 132f);
+            // Main panel
+            var panel = MakePanel(root, "Panel", new Vector2(0.28f,0.12f), new Vector2(0.88f,0.82f), Vector2.zero, Vector2.zero, panelColor);
 
-            RectTransform previewPanel = CreatePanel(panel, "HeatmapPreviewPanel", new Vector2(0.42f, 0.12f), new Vector2(0.95f, 0.82f), new Vector2(28f, 28f), new Vector2(-28f, -108f), new Color(0.07f, 0.08f, 0.11f, 0.98f));
-            CreateEdge(previewPanel);
-            CreateLabel(previewPanel, "PreviewLabel", "HEATMAP PREVIEW", 16, FontStyle.Bold, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(14f, -14f), new Vector2(180f, 22f), textColor, TextAnchor.MiddleLeft);
+            MakeLabel(panel, "Title", "ANALYTICS / HEATMAP", 26, FontStyle.Bold,
+                new Vector2(0,1), new Vector2(0,1), new Vector2(24,-22), new Vector2(400,32), textColor, TextAnchor.MiddleLeft);
 
-            heatmapPreview = CreateRawImage(previewPanel, new Vector2(14f, 14f), new Vector2(-14f, -50f));
-            replayStatusText = CreateLabel(previewPanel, "ReplayStatus", "Replay ready", 14, FontStyle.Normal, new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(14f, 12f), new Vector2(-14f, 24f), mutedTextColor, TextAnchor.MiddleLeft);
+            // Stats column
+            var stats = MakePanel(panel,"Stats",new Vector2(0,1),new Vector2(0.38f,0),new Vector2(24,-80),new Vector2(-24,-24),new Color(0.07f,0.08f,0.11f,.95f));
+            stats.GetComponent<Image>().raycastTarget = false; // FIX: was blocking clicks
 
-            RectTransform buttonRow = CreateRow(panel, new Vector2(28f, 28f), 540f, 44f);
-            renderButton = CreateButton(buttonRow, "Render Heatmap", 0f, 170f, () => BuildHeatmapPreview());
-            replayButton = CreateButton(buttonRow, "Replay", 186f, 120f, () => StartReplay());
-            clearButton = CreateButton(buttonRow, "Clear", 324f, 120f, ClearAnalytics);
+            sampleCountText  = MakeStatRow(stats, "Samples",      0);
+            avgScoreText     = MakeStatRow(stats, "Avg Score",     1);
+            peakScoreText    = MakeStatRow(stats, "Peak Score",    2);
+            avgVelocityText  = MakeStatRow(stats, "Avg Velocity",  3);
+            durationText     = MakeStatRow(stats, "Duration",      4);
+
+            // Heatmap preview
+            var preview = MakePanel(panel,"Preview",new Vector2(0.42f,0.12f),new Vector2(0.95f,0.88f),new Vector2(24,24),new Vector2(-24,-80),new Color(0.07f,0.08f,0.11f,.98f));
+            preview.GetComponent<Image>().raycastTarget = false; // FIX
+
+            MakeLabel(preview,"PreviewLbl","HEATMAP PREVIEW",15,FontStyle.Bold,
+                new Vector2(0,1),new Vector2(0,1),new Vector2(12,-12),new Vector2(180,20),textColor,TextAnchor.MiddleLeft);
+
+            var imgGO = new GameObject("HeatmapImg", typeof(RectTransform));
+            imgGO.transform.SetParent(preview, false);
+            var imgRT = imgGO.GetComponent<RectTransform>();
+            imgRT.anchorMin = Vector2.zero; imgRT.anchorMax = Vector2.one;
+            imgRT.offsetMin = new Vector2(12,12); imgRT.offsetMax = new Vector2(-12,-42);
+            heatmapPreview = imgGO.AddComponent<RawImage>();
+            heatmapPreview.color = Color.white;
+
+            replayStatusText = MakeLabel(preview,"ReplayStatus","Replay ready",13,FontStyle.Normal,
+                new Vector2(0,0),new Vector2(1,0),new Vector2(12,10),new Vector2(-12,22),mutedColor,TextAnchor.MiddleLeft);
+
+            // Buttons row
+            var btnRow = MakePanel(panel,"Buttons",new Vector2(0,0),new Vector2(1,0),new Vector2(24,16),new Vector2(-24,60),new Color(0,0,0,0));
+            btnRow.GetComponent<Image>().raycastTarget = false; // FIX
+
+            MakeButton(btnRow, "Render",  "Render Heatmap", new Vector2(0,0),   new Vector2(170,40), BuildHeatmapPreview);
+            MakeButton(btnRow, "Replay",  "Replay",         new Vector2(178,0), new Vector2(120,40), StartReplay);
+            MakeButton(btnRow, "Clear",   "Clear",          new Vector2(306,0), new Vector2(120,40), ClearAnalytics);
         }
 
-        private void CreateBackground(RectTransform root)
-        {
-            RectTransform background = CreatePanel(root, "AnalyticsBackground", new Vector2(0f, 0f), new Vector2(1f, 1f), Vector2.zero, Vector2.zero, backgroundColor);
-            background.SetAsFirstSibling();
-        }
-
+        // ── Refresh ───────────────────────────────────────────────────────────
         private void RefreshUi()
         {
-            if (heatmapRecorder == null)
-            {
-                summaryText.text = "Analytics recorder not connected.";
-                return;
-            }
+            if (heatmapRecorder == null) return;
 
-            HeatmapSummary summary = heatmapRecorder.GetSummary();
-            sampleCountText.text = $"Samples: {summary.SampleCount}";
-            averageScoreText.text = $"Avg Score: {summary.AverageScore:0.0}";
-            peakScoreText.text = $"Peak Score: {summary.PeakScore:0.0}";
-            averageVelocityText.text = $"Avg Velocity: {summary.AverageVelocity:0.00}";
-            durationText.text = $"Duration: {summary.DurationSeconds:0.0}s";
+            var s = heatmapRecorder.GetSummary();
+            if (sampleCountText != null) sampleCountText.text = $"Samples: {s.SampleCount}";
+            if (avgScoreText    != null) avgScoreText.text    = $"Avg Score: {s.AverageScore:0.0}";
+            if (peakScoreText   != null) peakScoreText.text   = $"Peak Score: {s.PeakScore:0.0}";
+            if (avgVelocityText != null) avgVelocityText.text = $"Avg Velocity: {s.AverageVelocity:0.00}";
+            if (durationText    != null) durationText.text    = $"Duration: {s.DurationSeconds:0.0}s";
 
-            if (replayController != null)
-            {
+            if (replayStatusText != null && replayController != null)
                 replayStatusText.text = replayController.GetStatusText();
-            }
 
-            if (heatmapPreview != null && heatmapPreview.texture == null && summary.SampleCount > 0)
-            {
+            // Auto-render heatmap when samples arrive
+            if (heatmapPreview != null && heatmapPreview.texture == null && s.SampleCount > 0)
                 BuildHeatmapPreview();
-            }
         }
 
         private void BuildHeatmapPreview()
         {
-            if (heatmapRecorder == null || heatmapPreview == null)
-            {
-                return;
-            }
-
-            Texture2D texture = heatmapRecorder.BuildHeatmapTexture();
-            heatmapPreview.texture = texture;
+            if (heatmapRecorder == null || heatmapPreview == null) return;
+            heatmapPreview.texture = heatmapRecorder.BuildHeatmapTexture();
         }
 
         private void StartReplay()
         {
-            if (replayController == null)
-            {
-                return;
-            }
-
+            if (replayController == null) return;
             replayController.LoadFromRecorder();
             replayController.Play();
         }
 
         private void ClearAnalytics()
         {
-            if (heatmapRecorder != null)
-            {
-                heatmapRecorder.Clear();
-            }
-
-            if (replayController != null)
-            {
-                replayController.Stop();
-            }
-
-            if (heatmapPreview != null)
-            {
-                heatmapPreview.texture = null;
-            }
+            heatmapRecorder?.Clear();
+            replayController?.Stop();
+            if (heatmapPreview != null) heatmapPreview.texture = null;
         }
 
-        private Text CreateStatRow(RectTransform parent, string label, float index, float offsetY)
+        // ── Helpers ───────────────────────────────────────────────────────────
+        private Text MakeStatRow(RectTransform parent, string label, int row)
         {
-            return CreateLabel(parent, label, $"{label}: 0", 16, FontStyle.Normal, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(14f, -offsetY), new Vector2(320f, 20f), textColor, TextAnchor.MiddleLeft);
+            float y = -16f - row * 28f;
+            return MakeLabel(parent, label, $"{label}: —", 15, FontStyle.Normal,
+                new Vector2(0,1), new Vector2(0,1), new Vector2(12, y), new Vector2(300, 22),
+                textColor, TextAnchor.MiddleLeft);
         }
 
-        private RectTransform CreatePanel(RectTransform parent, string name, Vector2 anchorMin, Vector2 anchorMax, Vector2 offsetMin, Vector2 offsetMax, Color color)
+        private RectTransform MakePanel(RectTransform parent, string name,
+            Vector2 ancMin, Vector2 ancMax, Vector2 oMin, Vector2 oMax, Color color)
         {
-            GameObject panelObject = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
-            panelObject.transform.SetParent(parent, false);
-            RectTransform rect = panelObject.GetComponent<RectTransform>();
-            rect.anchorMin = anchorMin;
-            rect.anchorMax = anchorMax;
-            rect.offsetMin = offsetMin;
-            rect.offsetMax = offsetMax;
-
-            Image image = panelObject.GetComponent<Image>();
-            image.color = color;
-            return rect;
+            var go = new GameObject(name, typeof(RectTransform));
+            go.transform.SetParent(parent, false);
+            var rt = go.GetComponent<RectTransform>();
+            rt.anchorMin = ancMin; rt.anchorMax = ancMax;
+            rt.offsetMin = oMin;   rt.offsetMax = oMax;
+            go.AddComponent<Image>().color = color;
+            return rt;
         }
 
-        private void CreateEdge(RectTransform panel, Color? edgeColor = null)
+        private Text MakeLabel(RectTransform parent, string name, string text,
+            int size, FontStyle style, Vector2 ancMin, Vector2 ancMax,
+            Vector2 oMin, Vector2 oMax, Color color, TextAnchor align)
         {
-            Image image = panel.GetComponent<Image>();
-            if (image != null)
-            {
-                image.color = edgeColor ?? panelColor;
-            }
+            var go = new GameObject(name, typeof(RectTransform));
+            go.transform.SetParent(parent, false);
+            var rt = go.GetComponent<RectTransform>();
+            rt.anchorMin = ancMin; rt.anchorMax = ancMax;
+            rt.offsetMin = oMin;   rt.offsetMax = oMax;
+            var t = go.AddComponent<Text>();
+            t.font = uiFont; t.text = text; t.fontSize = size; t.fontStyle = style;
+            t.color = color; t.alignment = align;
+            t.horizontalOverflow = HorizontalWrapMode.Overflow;
+            t.verticalOverflow   = VerticalWrapMode.Overflow;
+            return t;
         }
 
-        private Text CreateLabel(RectTransform parent, string name, string text, int fontSize, FontStyle style, Vector2 anchorMin, Vector2 anchorMax, Vector2 offsetMin, Vector2 sizeDelta, Color color, TextAnchor alignment)
+        private void MakeButton(RectTransform parent, string name, string label,
+            Vector2 oMin, Vector2 size, UnityEngine.Events.UnityAction onClick)
         {
-            GameObject labelObject = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(Text));
-            labelObject.transform.SetParent(parent, false);
-            RectTransform rect = labelObject.GetComponent<RectTransform>();
-            rect.anchorMin = anchorMin;
-            rect.anchorMax = anchorMax;
-            rect.offsetMin = offsetMin;
-            rect.sizeDelta = sizeDelta;
-
-            Text label = labelObject.GetComponent<Text>();
-            label.font = uiFont;
-            label.text = text;
-            label.fontSize = fontSize;
-            label.fontStyle = style;
-            label.color = color;
-            label.alignment = alignment;
-            label.horizontalOverflow = HorizontalWrapMode.Overflow;
-            label.verticalOverflow = VerticalWrapMode.Overflow;
-            return label;
-        }
-
-        private RawImage CreateRawImage(RectTransform parent, Vector2 offsetMin, Vector2 offsetMax)
-        {
-            GameObject imageObject = new GameObject("HeatmapPreview", typeof(RectTransform), typeof(CanvasRenderer), typeof(RawImage));
-            imageObject.transform.SetParent(parent, false);
-            RectTransform rect = imageObject.GetComponent<RectTransform>();
-            rect.anchorMin = Vector2.zero;
-            rect.anchorMax = Vector2.one;
-            rect.offsetMin = offsetMin;
-            rect.offsetMax = offsetMax;
-
-            RawImage raw = imageObject.GetComponent<RawImage>();
-            raw.color = Color.white;
-            return raw;
-        }
-
-        private RectTransform CreateRow(RectTransform parent, Vector2 offsetMin, float width, float height)
-        {
-            RectTransform row = CreatePanel(parent, "ButtonRow", new Vector2(0f, 0f), new Vector2(0f, 0f), offsetMin, offsetMin + new Vector2(width, height), new Color(0f, 0f, 0f, 0f));
-            return row;
-        }
-
-        private Button CreateButton(RectTransform parent, string label, float xOffset, float width, UnityEngine.Events.UnityAction onClick)
-        {
-            RectTransform buttonRect = CreatePanel(parent, label.Replace(' ', '_'), new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(xOffset, 0f), new Vector2(xOffset + width, 44f), accentColor);
-            Button button = buttonRect.gameObject.AddComponent<Button>();
-            button.transition = Selectable.Transition.ColorTint;
-            button.onClick.AddListener(onClick);
-            CreateLabel(buttonRect, "Text", label, 14, FontStyle.Bold, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(width - 8f, 20f), textColor, TextAnchor.MiddleCenter);
-            return button;
+            var r = MakePanel(parent, name,
+                new Vector2(0,0), new Vector2(0,0), oMin, oMin + size, accentColor);
+            var btn = r.gameObject.AddComponent<Button>();
+            btn.onClick.AddListener(onClick);
+            MakeLabel(r, "T", label, 13, FontStyle.Bold,
+                new Vector2(.5f,.5f), new Vector2(.5f,.5f),
+                Vector2.zero, new Vector2(size.x - 8f, 20f), textColor, TextAnchor.MiddleCenter);
         }
     }
 }
