@@ -6,18 +6,18 @@ namespace StickLab.Core
     {
         [Header("Cursor")]
         [SerializeField] private Transform cursorVisual;
-        [SerializeField] private Rect playArea = new Rect(-4f, -2.5f, 8f, 5f);
+        [SerializeField] private Rect      playArea    = new Rect(-4f, -2.5f, 8f, 5f);
         [SerializeField, Min(0f)] private float sensitivity = 8f;
         [SerializeField] private float fixedZ = 0f;
-        
-    [Header("Smoothing")]
-    [SerializeField] private bool enableCursorSmoothing = true;
-    [SerializeField, Range(0.01f, 0.5f)] private float smoothAlpha = 0.15f;
-    [SerializeField] private bool enableCursorTrailing = true;
-    [SerializeField] private int trailLength = 8;
-        
-    private CursorSmoother smoother;
-    private CursorTrailRenderer trailRenderer;
+
+        [Header("Smoothing")]
+        [SerializeField] private bool enableCursorSmoothing  = true;
+        [SerializeField, Range(0.01f, 0.5f)] private float smoothAlpha = 0.15f;
+        [SerializeField] private bool enableCursorTrailing   = true;
+        [SerializeField] private int  trailLength            = 8;
+
+        private CursorSmoother       smoother;
+        private CursorTrailRenderer  trailRenderer;
 
         public Vector2 Position2D { get; private set; }
 
@@ -25,25 +25,25 @@ namespace StickLab.Core
 
         private void Awake()
         {
-            Vector3 startPosition = ActiveTransform.position;
-            Position2D = new Vector2(startPosition.x, startPosition.y);
-            fixedZ = startPosition.z;
-            
-            // Initialize cursor smoother
+            Vector3 startPos = ActiveTransform.position;
+            Position2D = new Vector2(startPos.x, startPos.y);
+            fixedZ     = startPos.z;
+
             if (enableCursorSmoothing)
             {
-                CursorSmoother.SmoothSettings smoothSettings = new CursorSmoother.SmoothSettings
+                var settings = new CursorSmoother.SmoothSettings
                 {
-                    smoothAlpha = smoothAlpha,
+                    smoothAlpha    = smoothAlpha,
                     enableTrailing = enableCursorTrailing,
-                    trailLength = trailLength,
-                    trailFade = 0.8f
+                    trailLength    = trailLength,
+                    trailFade      = 0.8f
                 };
-                smoother = new CursorSmoother(smoothSettings);
-                
+                smoother = new CursorSmoother(settings);
+                smoother.Reset(Position2D);
+
                 if (enableCursorTrailing)
                 {
-                    GameObject trailGO = new GameObject("CursorTrail");
+                    var trailGO = new GameObject("CursorTrail");
                     trailGO.transform.SetParent(transform);
                     trailRenderer = trailGO.AddComponent<CursorTrailRenderer>();
                     trailRenderer.SetSmoother(smoother);
@@ -51,97 +51,71 @@ namespace StickLab.Core
             }
         }
 
-        private void Start()
-        {
-            SetPosition(Position2D);
-        }
+        private void Start() => ApplyToTransform();
 
+        /// <summary>Called every frame by GameLoop.</summary>
         public void Tick(Vector2 stickInput, float deltaTime, float sensitivityMultiplier = 1f)
         {
-            float effectiveSensitivity = sensitivity * Mathf.Max(0f, sensitivityMultiplier);
-            Vector2 nextPosition = Position2D + (stickInput * effectiveSensitivity * deltaTime);
-            Position2D = ClampToPlayArea(nextPosition);
-            
-            // Apply cursor smoothing if enabled
+            float   effSens   = sensitivity * Mathf.Max(0f, sensitivityMultiplier);
+            // FIX: clamp BEFORE passing to smoother to avoid double-clamping artefacts
+            Vector2 rawNext   = Position2D + stickInput * effSens * deltaTime;
+            Vector2 clamped   = ClampToPlayArea(rawNext);
+
             if (enableCursorSmoothing && smoother != null)
             {
-                smoother.Update(Position2D);
-                Vector2 smoothedPos = smoother.SmoothedPosition;
-                Position2D = smoothedPos;
-                
-                // Update trail renderer if available
+                smoother.Update(clamped);
+                // Smooth output is already within play area (input was clamped)
+                Position2D = smoother.SmoothedPosition;
+
                 if (enableCursorTrailing && trailRenderer != null)
-                {
                     trailRenderer.UpdateTrail();
-                }
             }
-            
+            else
+            {
+                Position2D = clamped;
+            }
+
             ApplyToTransform();
         }
 
         public void SetPosition(Vector2 worldPosition)
         {
             Position2D = ClampToPlayArea(worldPosition);
+            smoother?.Reset(Position2D);
             ApplyToTransform();
         }
 
         public void SetPlayArea(Rect newPlayArea)
         {
-            playArea = newPlayArea;
+            playArea   = newPlayArea;
             Position2D = ClampToPlayArea(Position2D);
             ApplyToTransform();
         }
 
-        public void SetSensitivity(float newSensitivity)
-        {
-            sensitivity = Mathf.Max(0f, newSensitivity);
-        }
+        public void SetSensitivity(float v)  => sensitivity  = Mathf.Max(0f, v);
+        public float GetSensitivity()        => sensitivity;
+        public bool  GetCursorSmoothingEnabled() => enableCursorSmoothing;
+        public float GetSmoothAlpha()        => smoothAlpha;
 
-        public float GetSensitivity()
-        {
-            return sensitivity;
-        }
-
-        public void SetCursorSmoothing(bool enabled)
-        {
-            enableCursorSmoothing = enabled;
-        }
+        public void SetCursorSmoothing(bool enabled) => enableCursorSmoothing = enabled;
 
         public void SetSmoothAlpha(float alpha)
         {
-            smoothAlpha = Mathf.Clamp01(alpha);
-            if (smoother != null)
+            smoothAlpha = Mathf.Clamp(alpha, 0.01f, 0.5f);
+            smoother?.SetSettings(new CursorSmoother.SmoothSettings
             {
-                smoother.SetSettings(new CursorSmoother.SmoothSettings
-                {
-                    smoothAlpha = smoothAlpha,
-                    enableTrailing = enableCursorTrailing,
-                    trailLength = trailLength,
-                    trailFade = 0.8f
-                });
-            }
+                smoothAlpha    = smoothAlpha,
+                enableTrailing = enableCursorTrailing,
+                trailLength    = trailLength,
+                trailFade      = 0.8f
+            });
         }
 
-        public bool GetCursorSmoothingEnabled()
-        {
-            return enableCursorSmoothing;
-        }
+        private Vector2 ClampToPlayArea(Vector2 p) =>
+            new Vector2(Mathf.Clamp(p.x, playArea.xMin, playArea.xMax),
+                        Mathf.Clamp(p.y, playArea.yMin, playArea.yMax));
 
-        public float GetSmoothAlpha()
-        {
-            return smoothAlpha;
-        }
-
-        private Vector2 ClampToPlayArea(Vector2 position)
-        {
-            float x = Mathf.Clamp(position.x, playArea.xMin, playArea.xMax);
-            float y = Mathf.Clamp(position.y, playArea.yMin, playArea.yMax);
-            return new Vector2(x, y);
-        }
-
-        private void ApplyToTransform()
-        {
+        private void ApplyToTransform() =>
             ActiveTransform.position = new Vector3(Position2D.x, Position2D.y, fixedZ);
-        }
     }
 }

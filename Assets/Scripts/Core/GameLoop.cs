@@ -5,71 +5,39 @@ namespace StickLab.Core
 {
     public class GameLoop : MonoBehaviour
     {
-        [Header("Core References")]
-        [SerializeField] private InputHandler inputHandler;
-        [SerializeField] private CursorController cursorController;
+        [SerializeField] private InputHandler           inputHandler;
+        [SerializeField] private CursorController       cursorController;
         [SerializeField] private TrainingSessionManager sessionManager;
-        [SerializeField] private HeatmapRecorder heatmapRecorder;
+        [SerializeField] private HeatmapRecorder        heatmapRecorder;
 
         private bool recordingActive;
 
-        public void SetReferences(InputHandler newInputHandler, CursorController newCursorController, TrainingSessionManager newSessionManager)
-        {
-            inputHandler = newInputHandler;
-            cursorController = newCursorController;
-            sessionManager = newSessionManager;
-        }
+        public void SetReferences(InputHandler ih, CursorController cc, TrainingSessionManager sm)
+        { inputHandler=ih; cursorController=cc; sessionManager=sm; }
 
-        public void SetHeatmapRecorder(HeatmapRecorder newHeatmapRecorder)
-        {
-            heatmapRecorder = newHeatmapRecorder;
-        }
+        public void SetHeatmapRecorder(HeatmapRecorder hr) => heatmapRecorder = hr;
 
         private void Update()
         {
-            if (inputHandler == null || cursorController == null || sessionManager == null)
-            {
-                return;
-            }
-
-            float deltaTime = Time.deltaTime;
-
-            HandleHeatmapRecordingState();
-
+            if (inputHandler==null||cursorController==null||sessionManager==null) return;
             inputHandler.Sample();
-            if (!sessionManager.IsRunning)
-            {
-                return;
-            }
-
-            Vector2 stickInput = inputHandler.RightStick;
-
-            cursorController.Tick(stickInput, deltaTime, inputHandler.PrecisionMultiplier);
-            sessionManager.Tick(cursorController.Position2D, deltaTime);
-
-            if (heatmapRecorder != null)
-            {
-                heatmapRecorder.CaptureSample(cursorController.Position2D, sessionManager.CurrentTotalScore, deltaTime);
-            }
+            SyncHeatmap();
+            if (!sessionManager.IsRunning) return;
+            float dt = Time.deltaTime;
+            cursorController.Tick(inputHandler.RightStick, dt, inputHandler.PrecisionMultiplier);
+            sessionManager.Tick(cursorController.Position2D, dt);
+            if (heatmapRecorder!=null && heatmapRecorder.IsRecording)
+                heatmapRecorder.CaptureSample(cursorController.Position2D, sessionManager.CurrentTotalScore, dt);
         }
 
-        private void HandleHeatmapRecordingState()
+        // FIX: recording only starts once IsRunning=true; ends exactly once
+        private void SyncHeatmap()
         {
-            if (heatmapRecorder == null || sessionManager == null)
-            {
-                return;
-            }
-
+            if (heatmapRecorder==null||sessionManager==null) return;
             if (sessionManager.IsRunning && !recordingActive)
-            {
-                recordingActive = true;
-                heatmapRecorder.BeginRecording();
-            }
+            { recordingActive=true; heatmapRecorder.BeginRecording(); }
             else if (!sessionManager.IsRunning && recordingActive)
-            {
-                recordingActive = false;
-                heatmapRecorder.EndRecording();
-            }
+            { recordingActive=false; heatmapRecorder.EndRecording(); }
         }
     }
 }
